@@ -29,7 +29,7 @@ func TestWriteRead(t *testing.T) {
 	for {
 		log.Printf("Table -- TestWriteRead -- Calling multiWriteRead with size = %d\n", testSize)
 		if multiWriteRead(testSize, t) == false {
-			t.Errorf("Failed multiple write/read test at size = %d", testSize)
+			t.Fatalf("Failed multiple write/read test at size = %d", testSize)
 		}
 		if testSize == tableSize {
 			break
@@ -60,6 +60,7 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 	tb, err = newTableManager()
 	if err != nil {
 		t.Error(err)
+		return false
 	}
 
 	for i := 0; i < testSize; i++ {
@@ -110,7 +111,7 @@ func TestDirtyList(t *testing.T) {
 
 	tb, err = newTableManager()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	testSize = 0
@@ -129,14 +130,14 @@ func TestDirtyList(t *testing.T) {
 
 			err = tb.write(myKey, tmpBlock)
 			if err != nil {
-				t.Error("Write failed: Error occured during write.")
+				t.Fatal("Write failed: Error occured during write.")
 			}
 		}
 		uint64Sort(sortedKeys)
 		log.Printf("Table -- TestDirtyList -- Testing DirtyList at size = %d", len(sortedKeys))
 		dirtyList, err = tb.getDirtyList()
 		if err != nil {
-			t.Error("Failure: DirtyList() error")
+			t.Fatal("Failure: DirtyList() error")
 		}
 		uint64Sort(dirtyList)
 
@@ -162,7 +163,7 @@ func TestDirtyList(t *testing.T) {
 
 }
 
-// Tests if the CommitKey method works correctly.
+// Tests if the commitKey method works correctly.
 // Writes blocks, then commits them by random, and verifies the
 // result from DirtyList method.
 func TestCommit(t *testing.T) {
@@ -176,7 +177,7 @@ func TestCommit(t *testing.T) {
 
 	tb, err = newTableManager()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 
 	for i := 0; i < testSize; i++ {
@@ -192,7 +193,7 @@ func TestCommit(t *testing.T) {
 
 		err = tb.write(myKey, tmpBlock)
 		if err != nil {
-			t.Error("Write failed: Error occured during write.")
+			t.Fatal("Write failed: Error occured during write.")
 		}
 	}
 	uint64Sort(sortedKeys)
@@ -205,7 +206,7 @@ func TestCommit(t *testing.T) {
 			index = (myRand.Intn(len(sortedKeys)))
 			err = tb.commitKey(sortedKeys[index])
 			if err != nil {
-				t.Errorf("Commit item %d failed.", index)
+				t.Fatalf("Commit item %d failed.", index)
 			}
 			sortedKeys = append(sortedKeys[:index], sortedKeys[index+1:]...)
 		}
@@ -213,7 +214,7 @@ func TestCommit(t *testing.T) {
 		log.Printf("Table -- TestCommmit -- Testing DirtyList at size = %d", len(sortedKeys))
 		dirtyList, err = tb.getDirtyList()
 		if err != nil {
-			t.Error("Failure: DirtyList() error")
+			t.Fatal("Failure: DirtyList() error")
 		}
 		uint64Sort(dirtyList)
 
@@ -233,8 +234,204 @@ func TestCommit(t *testing.T) {
 
 }
 
-//TODO test if re-writing an entry works as expected.
-//TODO test if markRemove works as expected. write/markRemove/read an entry and it should return nil,nil
-//TODO test if removal works as expected. write/markRemove/commit/read should return error.
-// Also write all entries, then markRemove, commit, and write a new entry should work.
+// Writes the table, rewriting each entry multiple times.
+// Each time a new datablock is generated and compared with the updated entry.
+func TestReWrite(t *testing.T) {
+	var myKey uint64
+	var writeBlock, readBlock *Block
+	var err error
+	var tb *tableManager
+	var testSize = tableSize
+	var retries int = 8
+	myRand := randomGen()
+
+	tb, err = newTableManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	log.Printf("Table -- TestReWrite -- Writing %d entries, each on %d times.", testSize, retries)
+	for i := 0; i < testSize; i++ {
+		// Generating a new random key.
+		for {
+			myKey = uint64(myRand.Intn(int(maxKey)))
+			if entry, _ := tb.getEntry(myKey); entry == nil {
+				break
+			}
+		}
+
+		for j := 1; j <= retries; j++ {
+			writeBlock = GetRandomBlock()
+			err = tb.write(myKey, writeBlock)
+			if err != nil {
+				t.Fatalf("Entry #%d write #%d failed: Error occured during write.", i, j)
+			}
+
+			readBlock, err = tb.read(myKey)
+			if err != nil {
+				t.Fatalf("Entry #%d read #%d failed: Written key is not found.", i, j)
+			}
+			if readBlock != writeBlock {
+				t.Fatalf("Entry #%d read #%d failed: Block does not match.", i, j)
+			}
+		}
+	}
+
+}
+
+// Tests if markRemove works as expected. Writes entries to table, then calls
+// markRemove and then tries to read them. It check this twice for each entry.
+func TestMarkRemove(t *testing.T) {
+	var myKey uint64
+	var writeBlock, readBlock *Block
+	var err error
+	var tb *tableManager
+	var tmpEntry *tableEntry
+	var testSize = tableSize
+	myRand := randomGen()
+
+	tb, err = newTableManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	log.Printf("Table -- TestMarkRemove -- Writing %d entries, mark each for removal.", testSize)
+	for i := 0; i < testSize; i++ {
+		// Generating a new random key.
+		for {
+			myKey = uint64(myRand.Intn(int(maxKey)))
+			if entry, _ := tb.getEntry(myKey); entry == nil {
+				break
+			}
+		}
+		writeBlock = GetRandomBlock()
+
+		err = tb.write(myKey, writeBlock)
+		if err != nil {
+			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
+		}
+
+		readBlock, err = tb.read(myKey)
+		if err != nil {
+			t.Fatalf("Entry #%d read failed: Written key is not found.", i)
+		}
+		if readBlock != writeBlock {
+			t.Fatalf("Entry #%d read failed: Block does not match.", i)
+		}
+
+		// Marking same key for removal.
+		err = tb.markRemove(myKey)
+		if err != nil {
+			t.Fatalf("Entry #%d first call to markRemove failed.", i)
+		}
+
+		tmpEntry, err = tb.getEntry(myKey)
+		if err != nil || tmpEntry == nil {
+			t.Fatalf("Entry #%d getEntry failed after markRemove.", i)
+		}
+
+		readBlock, err = tb.read(myKey)
+		if err != nil {
+			t.Fatalf("Entry #%d read failed: Written key is not found after markRemove.", i)
+		}
+		if readBlock != nil {
+			t.Fatalf("Entry #%d read failed: Block is not nil after markRemove.", i)
+		}
+
+		// Marking same key for removal again.
+		err = tb.markRemove(myKey)
+		if err != nil {
+			t.Fatalf("Entry #%d second call to markRemove failed.", i)
+		}
+
+		tmpEntry, err = tb.getEntry(myKey)
+		if err != nil || tmpEntry == nil {
+			t.Fatalf("Entry #%d getEntry failed after markRemove twice.", i)
+		}
+
+		readBlock, err = tb.read(myKey)
+		if err != nil {
+			t.Fatalf("Entry #%d read failed: Written key is not found after markRemove twice.", i)
+		}
+		if readBlock != nil {
+			t.Fatalf("Entry #%d read failed: Block is not nil after markRemove twice.", i)
+		}
+	}
+}
+
+// Tests if removing entries works. First fills the table. Then removes entries
+// one by one and checks removal. Then retries filling the table and repeat
+// multiple times to ensure functinoality.
+func TestRemove(t *testing.T) {
+	var myKey uint64
+	var keys []uint64
+	var writeBlock *Block
+	var err error
+	var tb *tableManager
+	var tmpEntry *tableEntry
+	var testSize = tableSize
+	var retries = 8
+	myRand := randomGen()
+
+	tb, err = newTableManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	log.Printf("Table -- TestRemove -- Writing %d entries, removing one bye one, and repeating %d times.", testSize, retries)
+	for try := 1; try <= retries; try++ {
+		keys = keys[:0]
+		// Filling the table.
+		for i := 0; i < testSize; i++ {
+			// Generating a new random key.
+			for {
+				myKey = uint64(myRand.Intn(int(maxKey)))
+				if entry, _ := tb.getEntry(myKey); entry == nil {
+					break
+				}
+			}
+			keys = append(keys, myKey)
+
+			writeBlock = GetRandomBlock()
+
+			err = tb.write(myKey, writeBlock)
+			if err != nil {
+				t.Fatal("Write failed: Error occured during write.")
+			}
+		}
+		// Making sure the table is full.
+		// Generating a new random key.
+		for {
+			myKey = uint64(myRand.Intn(int(maxKey)))
+			if entry, _ := tb.getEntry(myKey); entry == nil {
+				break
+			}
+		}
+		writeBlock = GetRandomBlock()
+		err = tb.write(myKey, writeBlock)
+		if err == nil {
+			t.Fatal("Write succeeded unexpectedly. The table should have been full.")
+		}
+		// Removing entries one by one.
+		for i := 0; i < testSize; i++ {
+			err = tb.markRemove(keys[i])
+			if err != nil {
+				t.Fatalf("Entry #%d call to markRemove failed.", i)
+			}
+			tmpEntry, err = tb.getEntry(keys[i])
+			if err != nil || tmpEntry == nil {
+				t.Fatalf("Entry #%d getEntry failed after markRemove but before removal.", i)
+			}
+			err = tb.commitKey(keys[i])
+			if err != nil {
+				t.Fatalf("Entry #%d call to commitKey failed.", i)
+			}
+			tmpEntry, err = tb.getEntry(keys[i])
+			if err == nil || tmpEntry != nil {
+				t.Fatalf("Entry #%d remove failed.", i)
+			}
+		}
+	}
+}
+
 //TODO test if cache behavior is as expected.

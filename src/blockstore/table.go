@@ -16,7 +16,7 @@ import (
 
 // This constant describes the number of entries in the memory cache table.
 // TODO small value is picked for testing purposes. Should be configured later.
-const tableSize = 8
+const tableSize = 256
 
 // This block describes flag bits.
 const (
@@ -107,8 +107,8 @@ func (tb *tableManager) read(keyIn uint64) (*Block, error) {
 		return nil, errors.New("Could not obtain entry.")
 	}
 	if entry.flags&flagRemove != 0 {
-		//TODO dataBase should be able to tell if a dirtyKey is marked
-		//for removal so it can write it as removed in log.
+		// dataBase should be able to tell if a dirtyKey is marked
+		// for removal so it can write it as removed in log.
 		return nil, nil
 	}
 	tb.updateLRUCacheHead(entry)
@@ -125,7 +125,7 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 	entry, err := tb.getEntry(key)
 	if err != nil {
 		if len(tb.data) >= tableSize {
-			log.Println("Table is full, we need to pick a cache victim.")
+			// Table is full, we need to pick a cache victim.
 			err := tb.evict()
 			if err != nil {
 				return errors.New("Table is full and needs to be flushed.")
@@ -151,15 +151,17 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 // 2-Mark as committed: The key is explicitly marked as commited.
 // 3-Once an entry that is marked for removal is commited, it is removed.
 func (tb *tableManager) markRemove(keyIn uint64) error {
-	err := tb.write(keyIn, nil)
-	if err != nil {
-		log.Println("Could not write nil to entry for removal.")
-		return errors.New("Marking for removal failed.")
-	}
-	entry, err := tb.getEntry(keyIn)
+	var err error
+	var entry *tableEntry
+	entry, err = tb.getEntry(keyIn)
 	if err != nil {
 		log.Println("Could not obtain entry.")
 		return errors.New("Could not obtain entry.")
+	}
+	err = tb.write(keyIn, nil)
+	if err != nil {
+		log.Println("Could not write nil to entry for removal.")
+		return errors.New("Marking for removal failed.")
 	}
 	entry.flags = flagDirty | flagRemove
 	return nil
@@ -267,8 +269,7 @@ func (tb *tableManager) evict() error {
 		}
 	}
 	if dirtyFound == false {
-		log.Println("No victim found, maybe need a flush.")
-		return errors.New("No victim found.")
+		return errors.New("No victim found, maybe need a flush.")
 	}
 	tb.remove(victim.assignedKey)
 	return nil

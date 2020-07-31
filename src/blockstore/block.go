@@ -8,8 +8,7 @@ import (
 )
 
 // Size of a Block can be arbitrary. It is Intended to be 4096 to fit in a 4KB page.
-// TODO small value is picked for testing purposes. Should be configured later.
-const blockSize = 16
+const blockSize = 4096
 
 type Block [blockSize]byte
 
