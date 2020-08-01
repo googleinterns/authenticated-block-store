@@ -16,7 +16,7 @@ import (
 
 // This constant describes the number of entries in the memory cache table.
 // TODO small value is picked for testing purposes. Should be configured later.
-const tableSize = 256
+const tableSize = 64
 
 // This block describes flag bits.
 const (

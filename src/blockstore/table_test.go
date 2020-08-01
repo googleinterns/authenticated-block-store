@@ -434,4 +434,118 @@ func TestRemove(t *testing.T) {
 	}
 }
 
-//TODO test if cache behavior is as expected.
+// Tests if cache behavior is as expected.
+// Fills the table and commits entries. Reads the entries based on sorted keys
+// to predict the evict order. Then rewrites entries to the table and ensures
+// the eviction order. Finally verifies that all new and old uncommitted entries
+// are accessible.
+func TestCache(t *testing.T) {
+	var myKey uint64
+	var keysUC, keysC []uint64 //uncommitted and committed
+	var writeBlock, readBlock *Block
+	var err error
+	var tb *tableManager
+	var testSize = tableSize / 3
+	var tmpEntry *tableEntry
+	var index int
+	myRand := randomGen()
+
+	tb, err = newTableManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	log.Printf("Table -- TestCache -- Writing all %d entries.\n", tableSize)
+	for i := 0; i < tableSize; i++ {
+		// Generating a new random key.
+		for {
+			myKey = uint64(myRand.Intn(int(maxKey)))
+			if entry, _ := tb.getEntry(myKey); entry == nil {
+				break
+			}
+		}
+		keysUC = append(keysUC, myKey)
+		writeBlock = GetRandomBlock()
+
+		err = tb.write(myKey, writeBlock)
+		if err != nil {
+			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
+		}
+	}
+	// Sorting keysUC by key, to change the order of reads.
+	uint64Sort(keysUC)
+
+	// Reading in order, before making commits.
+	for _, k := range keysUC {
+		readBlock, err = tb.read(k)
+		if err != nil || readBlock == nil {
+			t.Fatal("Error occured during reading.")
+		}
+	}
+	log.Printf("Table -- TestCache -- Commiting %d entries.", testSize)
+	// Random commits
+	for len(keysC) < testSize {
+		index = (myRand.Intn(len(keysUC)))
+		myKey = keysUC[index]
+		err = tb.commitKey(myKey)
+		if err != nil {
+			t.Fatalf("Commit item %d failed.", index)
+		}
+		keysC = append(keysC, myKey)
+		keysUC = append(keysUC[:index], keysUC[index+1:]...)
+	}
+	// After commiting testSize entries, we should be able to add exactly testSize
+	// entries again. Note that eventhough we committed by random, we accessed
+	// entries from the sorted keysUC list. So the evicted ones will also be sorted.
+	log.Printf("Table -- TestCache -- Adding %d new entries to the full table.", testSize)
+	uint64Sort(keysC)
+	for i := 0; i < testSize; i++ {
+		// Generating a new random key.
+		for {
+			myKey = uint64(myRand.Intn(int(maxKey)))
+			if entry, _ := tb.getEntry(myKey); entry == nil {
+				break
+			}
+		}
+		keysUC = append(keysUC, myKey)
+		writeBlock = GetRandomBlock()
+
+		err = tb.write(myKey, writeBlock)
+		if err != nil {
+			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
+		}
+		// Checks to see the correct item is evicted.
+		// Since items were read based on keysC sorted list, evicted items
+		// should follow the same order
+		myKey = keysC[i]
+		tmpEntry, err = tb.getEntry(myKey)
+		if err == nil || tmpEntry != nil {
+			t.Fatal("Expected committed entry is not evicted.")
+		}
+		for j := i + 1; j < len(keysC); j++ {
+			tmpEntry, err = tb.getEntry(keysC[j])
+			if err != nil || tmpEntry == nil {
+				t.Fatal("Unexpected committed entry is evicted.")
+			}
+
+		}
+	}
+	// Making sure all committed entries are evicted.
+	for _, k := range keysC {
+		tmpEntry, err = tb.getEntry(k)
+		if err == nil || tmpEntry != nil {
+			t.Fatal("Committed entry should have been evicted.")
+		}
+	}
+	// Making sure all old and new uncommitted entries are accessible
+	if len(keysUC) != tableSize {
+		t.Fatalf("Table should be full again at size %d. However, the new size is %d.", tableSize, len(keysUC))
+	}
+	for _, k := range keysUC {
+		readBlock, err = tb.read(k)
+		if err != nil || readBlock == nil {
+			t.Fatal("Committed entry should have been evicted.")
+		}
+	}
+
+}
