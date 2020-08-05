@@ -2,22 +2,8 @@ package blockstore
 
 import (
 	"log"
-	"sort"
 	"testing"
 )
-
-// A helper function to sort slice of keys, which of are of type uint64.
-func uint64Sort(src []uint64) {
-	var tmpSlice []int
-	tmpSlice = make([]int, len(src), len(src))
-	for i, k := range src {
-		tmpSlice[i] = int(k)
-	}
-	sort.Ints(tmpSlice)
-	for i, k := range tmpSlice {
-		src[i] = uint64(k)
-	}
-}
 
 // Tries writing to and reading from a table.
 // This will call multiWriteRead function with different number of entries.
@@ -50,9 +36,9 @@ func TestWriteRead(t *testing.T) {
 func multiWriteRead(testSize int, t *testing.T) bool {
 	var myKey uint64
 	var writeBlock, readBlock []*Block
+	var kv *keyVal
 	var err error
 	var tb *tableManager
-	myRand := randomGen()
 
 	writeBlock = make([]*Block, testSize)
 	readBlock = make([]*Block, testSize)
@@ -66,7 +52,7 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 	for i := 0; i < testSize; i++ {
 		// Generating a new random key.
 		for {
-			myKey = uint64(myRand.Intn(int(maxKey)))
+			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
 				break
 			}
@@ -80,12 +66,13 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 			return false
 		}
 
-		readBlock[i], err = tb.read(myKey)
+		kv, err = tb.read(myKey)
 
 		if err != nil {
 			t.Error("Read failed: Written key is not found.")
 			return false
 		}
+		readBlock[i] = kv.block
 	}
 
 	for i := 0; i < testSize; i++ {
@@ -102,12 +89,12 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 // Starting from 1, doubling the number of entries, until full TableSize.
 func TestDirtyList(t *testing.T) {
 	var myKey uint64
-	var sortedKeys, dirtyList []uint64
+	var sortedKeys []uint64
+	var dirtyList []*keyVal
 	var tmpBlock *Block
 	var err error
 	var tb *tableManager
 	var index, testSize int
-	myRand := randomGen()
 
 	tb, err = newTableManager()
 	if err != nil {
@@ -120,7 +107,7 @@ func TestDirtyList(t *testing.T) {
 		for ; index < testSize; index++ {
 			// Generating a new random key.
 			for {
-				myKey = uint64(myRand.Intn(int(maxKey)))
+				myKey = GetRandomKey()
 				if entry, _ := tb.getEntry(myKey); entry == nil {
 					break
 				}
@@ -139,10 +126,9 @@ func TestDirtyList(t *testing.T) {
 		if err != nil {
 			t.Fatal("Failure: DirtyList() error")
 		}
-		uint64Sort(dirtyList)
 
 		for i, k := range sortedKeys {
-			if dirtyList[i] != k {
+			if dirtyList[i].key != k {
 				t.Error("Comparison failed. the keys and dirty list differ")
 			}
 		}
@@ -168,7 +154,8 @@ func TestDirtyList(t *testing.T) {
 // result from DirtyList method.
 func TestCommit(t *testing.T) {
 	var myKey uint64
-	var sortedKeys, dirtyList []uint64
+	var sortedKeys []uint64
+	var dirtyList []*keyVal
 	var tmpBlock *Block
 	var err error
 	var tb *tableManager
@@ -183,7 +170,7 @@ func TestCommit(t *testing.T) {
 	for i := 0; i < testSize; i++ {
 		// Generating a new random key.
 		for {
-			myKey = uint64(myRand.Intn(int(maxKey)))
+			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
 				break
 			}
@@ -216,10 +203,9 @@ func TestCommit(t *testing.T) {
 		if err != nil {
 			t.Fatal("Failure: DirtyList() error")
 		}
-		uint64Sort(dirtyList)
 
 		for i, k := range sortedKeys {
-			if dirtyList[i] != k {
+			if dirtyList[i].key != k {
 				t.Error("Comparison failed. the keys and dirty list differ")
 			}
 		}
@@ -238,12 +224,12 @@ func TestCommit(t *testing.T) {
 // Each time a new datablock is generated and compared with the updated entry.
 func TestReWrite(t *testing.T) {
 	var myKey uint64
+	var kv *keyVal
 	var writeBlock, readBlock *Block
 	var err error
 	var tb *tableManager
 	var testSize = tableSize
 	var retries int = 8
-	myRand := randomGen()
 
 	tb, err = newTableManager()
 	if err != nil {
@@ -254,7 +240,7 @@ func TestReWrite(t *testing.T) {
 	for i := 0; i < testSize; i++ {
 		// Generating a new random key.
 		for {
-			myKey = uint64(myRand.Intn(int(maxKey)))
+			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
 				break
 			}
@@ -267,10 +253,11 @@ func TestReWrite(t *testing.T) {
 				t.Fatalf("Entry #%d write #%d failed: Error occured during write.", i, j)
 			}
 
-			readBlock, err = tb.read(myKey)
+			kv, err = tb.read(myKey)
 			if err != nil {
 				t.Fatalf("Entry #%d read #%d failed: Written key is not found.", i, j)
 			}
+			readBlock = kv.block
 			if readBlock != writeBlock {
 				t.Fatalf("Entry #%d read #%d failed: Block does not match.", i, j)
 			}
@@ -283,12 +270,12 @@ func TestReWrite(t *testing.T) {
 // markRemove and then tries to read them. It check this twice for each entry.
 func TestMarkRemove(t *testing.T) {
 	var myKey uint64
+	var kv *keyVal
 	var writeBlock, readBlock *Block
 	var err error
 	var tb *tableManager
 	var tmpEntry *tableEntry
 	var testSize = tableSize
-	myRand := randomGen()
 
 	tb, err = newTableManager()
 	if err != nil {
@@ -299,7 +286,7 @@ func TestMarkRemove(t *testing.T) {
 	for i := 0; i < testSize; i++ {
 		// Generating a new random key.
 		for {
-			myKey = uint64(myRand.Intn(int(maxKey)))
+			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
 				break
 			}
@@ -311,10 +298,11 @@ func TestMarkRemove(t *testing.T) {
 			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
 		}
 
-		readBlock, err = tb.read(myKey)
+		kv, err = tb.read(myKey)
 		if err != nil {
 			t.Fatalf("Entry #%d read failed: Written key is not found.", i)
 		}
+		readBlock = kv.block
 		if readBlock != writeBlock {
 			t.Fatalf("Entry #%d read failed: Block does not match.", i)
 		}
@@ -330,10 +318,11 @@ func TestMarkRemove(t *testing.T) {
 			t.Fatalf("Entry #%d getEntry failed after markRemove.", i)
 		}
 
-		readBlock, err = tb.read(myKey)
+		kv, err = tb.read(myKey)
 		if err != nil {
 			t.Fatalf("Entry #%d read failed: Written key is not found after markRemove.", i)
 		}
+		readBlock = kv.block
 		if readBlock != nil {
 			t.Fatalf("Entry #%d read failed: Block is not nil after markRemove.", i)
 		}
@@ -349,10 +338,11 @@ func TestMarkRemove(t *testing.T) {
 			t.Fatalf("Entry #%d getEntry failed after markRemove twice.", i)
 		}
 
-		readBlock, err = tb.read(myKey)
+		kv, err = tb.read(myKey)
 		if err != nil {
 			t.Fatalf("Entry #%d read failed: Written key is not found after markRemove twice.", i)
 		}
+		readBlock = kv.block
 		if readBlock != nil {
 			t.Fatalf("Entry #%d read failed: Block is not nil after markRemove twice.", i)
 		}
@@ -371,7 +361,6 @@ func TestRemove(t *testing.T) {
 	var tmpEntry *tableEntry
 	var testSize = tableSize
 	var retries = 8
-	myRand := randomGen()
 
 	tb, err = newTableManager()
 	if err != nil {
@@ -385,7 +374,7 @@ func TestRemove(t *testing.T) {
 		for i := 0; i < testSize; i++ {
 			// Generating a new random key.
 			for {
-				myKey = uint64(myRand.Intn(int(maxKey)))
+				myKey = GetRandomKey()
 				if entry, _ := tb.getEntry(myKey); entry == nil {
 					break
 				}
@@ -402,7 +391,7 @@ func TestRemove(t *testing.T) {
 		// Making sure the table is full.
 		// Generating a new random key.
 		for {
-			myKey = uint64(myRand.Intn(int(maxKey)))
+			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
 				break
 			}
@@ -441,8 +430,9 @@ func TestRemove(t *testing.T) {
 // are accessible.
 func TestCache(t *testing.T) {
 	var myKey uint64
+	var kv *keyVal
 	var keysUC, keysC []uint64 //uncommitted and committed
-	var writeBlock, readBlock *Block
+	var writeBlock *Block
 	var err error
 	var tb *tableManager
 	var testSize = tableSize / 3
@@ -459,7 +449,7 @@ func TestCache(t *testing.T) {
 	for i := 0; i < tableSize; i++ {
 		// Generating a new random key.
 		for {
-			myKey = uint64(myRand.Intn(int(maxKey)))
+			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
 				break
 			}
@@ -477,8 +467,8 @@ func TestCache(t *testing.T) {
 
 	// Reading in order, before making commits.
 	for _, k := range keysUC {
-		readBlock, err = tb.read(k)
-		if err != nil || readBlock == nil {
+		kv, err = tb.read(k)
+		if err != nil || kv.block == nil {
 			t.Fatal("Error occured during reading.")
 		}
 	}
@@ -502,7 +492,7 @@ func TestCache(t *testing.T) {
 	for i := 0; i < testSize; i++ {
 		// Generating a new random key.
 		for {
-			myKey = uint64(myRand.Intn(int(maxKey)))
+			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
 				break
 			}
@@ -542,8 +532,8 @@ func TestCache(t *testing.T) {
 		t.Fatalf("Table should be full again at size %d. However, the new size is %d.", tableSize, len(keysUC))
 	}
 	for _, k := range keysUC {
-		readBlock, err = tb.read(k)
-		if err != nil || readBlock == nil {
+		kv, err = tb.read(k)
+		if err != nil || kv.block == nil {
 			t.Fatal("Committed entry should have been evicted.")
 		}
 	}
