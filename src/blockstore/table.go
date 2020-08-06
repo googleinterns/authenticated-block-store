@@ -34,27 +34,14 @@ import (
 // TODO small value is picked for testing purposes. Should be configured later.
 const tableSize = 64
 
-// This block describes flag bits.
-const (
-	// Defines if a table entry is dirty and cannot be evicted.
-	flagDirty = uint8(1) << iota
-	// Defines if a table entry is marked for removal.
-	flagRemove
-	// Other bits are reserved.
-)
-
 // This implements the struct for a single table entry.
 type tableEntry struct {
-	// Points to the data block.
-	block *Block
-	flags uint8
+	// Points to the keyVal struct holding the info.
+	kv *keyVal
 
 	// Pointers to the next/previous entry in LRU list.
 	lruNext *tableEntry
 	lruPrev *tableEntry
-	// They key that this entry belongs to. It allows us to remove the key
-	// from LRU list.
-	assignedKey uint64
 }
 
 // This implements the table manager. It is used as a receiver for methods such as write()/read().
@@ -67,7 +54,8 @@ type tableManager struct {
 
 	// A static dirtyList which is re-used. Though this variable not exported,
 	// a pointer to the slice is returned to the caller of getDirtyList().
-	dirtyList []uint64
+	// So the slice can get modified from outside.
+	dirtyList []*keyVal
 }
 
 // Constructs a table manager and initialize the members.
@@ -80,7 +68,7 @@ func newTableManager() (*tableManager, error) {
 	if tb.data == nil {
 		return nil, errors.New("Could not allocate the map for table.")
 	}
-	tb.dirtyList = make([]uint64, 0, tableSize)
+	tb.dirtyList = make([]*keyVal, 0, tableSize)
 	if tb.dirtyList == nil {
 		return nil, errors.New("Could not allocate dirtyList.")
 	}
@@ -114,21 +102,16 @@ func (tb *tableManager) getEntry(keyIn uint64) (*tableEntry, error) {
 	return entry, nil
 }
 
-// Reads a datablock by key. if nil is returned with no error, the entry is
-// marked for removal.
-func (tb *tableManager) read(keyIn uint64) (*Block, error) {
+// Reads a keyVal struct by key. The entry could have been marked for removal.
+// So the flags should be checked after reading.
+func (tb *tableManager) read(keyIn uint64) (*keyVal, error) {
 	entry, err := tb.getEntry(keyIn)
 	if err != nil {
 		log.Println("Could not obtain entry.")
 		return nil, errors.New("Could not obtain entry.")
 	}
-	if entry.flags&flagRemove != 0 {
-		// dataBase should be able to tell if a dirtyKey is marked
-		// for removal so it can write it as removed in log.
-		return nil, nil
-	}
 	tb.updateLRUCacheHead(entry)
-	return entry.block, nil
+	return entry.kv, nil
 }
 
 // Writes a (key, data block) pair in table.
@@ -152,10 +135,15 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 			log.Println("Could not allocate table entry.")
 			return errors.New("Could not allocate table entry.")
 		}
+		entry.kv = new(keyVal)
+		if entry.kv == nil {
+			log.Println("Could not allocate keyVal.")
+			return errors.New("Could not allocate keyVal.")
+		}
 	}
-	entry.block = val
-	entry.flags = flagDirty
-	entry.assignedKey = key
+	entry.kv.block = val
+	entry.kv.flags = flagDirty
+	entry.kv.key = key
 	tb.data[key] = entry
 
 	tb.updateLRUCacheHead(entry)
@@ -179,7 +167,7 @@ func (tb *tableManager) markRemove(keyIn uint64) error {
 		log.Println("Could not write nil to entry for removal.")
 		return errors.New("Marking for removal failed.")
 	}
-	entry.flags = flagDirty | flagRemove
+	entry.kv.flags = flagDirty | flagRemove
 	return nil
 }
 
@@ -217,16 +205,16 @@ func (tb *tableManager) commitKey(keyIn uint64) error {
 		log.Println("Key not found in table.")
 		return errors.New("Key not found in table.")
 	}
-	if entry.flags&flagDirty == 0 {
+	if entry.kv.flags&flagDirty == 0 {
 		// It is already comited.
 		return nil
 	}
 	// If it has been marked for removal, the entry is then removed.
-	if entry.flags&flagRemove != 0 {
+	if entry.kv.flags&flagRemove != 0 {
 		tb.remove(key)
 		return nil
 	}
-	entry.flags = entry.flags & ^flagDirty
+	entry.kv.flags = entry.kv.flags & ^flagDirty
 	return nil
 }
 
@@ -259,15 +247,24 @@ func (tb *tableManager) updateLRUCacheHead(entry *tableEntry) error {
 	return nil
 }
 
-// Returns a list of dirty entries (For commiting purpose).
+// Returns a list of dirty keyValentries (For commiting purpose).
 // Note that his returns a pointer to he internal slice.
-func (tb *tableManager) getDirtyList() ([]uint64, error) {
+// The slice is sorted based on keys.
+func (tb *tableManager) getDirtyList() ([]*keyVal, error) {
+	sortedKeys := make([]uint64, 0, tableSize)
+	for k, ent := range tb.data {
+		if ent.kv.flags&flagDirty > 0 {
+			sortedKeys = append(sortedKeys, k)
+		}
+	}
+	// Now sort the list of dirtyKeys
+	uint64Sort(sortedKeys)
+
 	// Reset the slice.
 	tb.dirtyList = tb.dirtyList[:0]
-	for k, ent := range tb.data {
-		if ent.flags&flagDirty > 0 {
-			tb.dirtyList = append(tb.dirtyList, k)
-		}
+	// Adding keyVals to the dirtyList, sorted by key.
+	for _, k := range sortedKeys {
+		tb.dirtyList = append(tb.dirtyList, tb.data[k].kv)
 	}
 	return tb.dirtyList, nil
 }
@@ -279,7 +276,7 @@ func (tb *tableManager) evict() error {
 	// Sweeping from tail to head, looking for a non-dirty candidate.
 	dirtyFound := false
 	for victim = tb.lruTail.lruPrev; victim != tb.lruHead; victim = victim.lruPrev {
-		if victim.flags&flagDirty == 0 {
+		if victim.kv.flags&flagDirty == 0 {
 			dirtyFound = true
 			break
 		}
@@ -287,6 +284,6 @@ func (tb *tableManager) evict() error {
 	if dirtyFound == false {
 		return errors.New("No victim found, maybe need a flush.")
 	}
-	tb.remove(victim.assignedKey)
+	tb.remove(victim.kv.key)
 	return nil
 }

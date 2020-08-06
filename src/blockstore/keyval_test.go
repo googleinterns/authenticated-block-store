@@ -25,7 +25,7 @@ import (
 func check(t *testing.T, v1 uint64, expect bool) {
 	var v2 uint64
 	var ok bool
-	log.Printf("Key -- TestCleanKey -- Testing with key: 0x%016X (expecting: %t)\n", v1, expect)
+	log.Printf("KeyVal -- TestCleanKey -- Testing with key: 0x%016X (expecting: %t)\n", v1, expect)
 	v2, ok = CleanKey(v1)
 	if expect == true {
 		if !ok || v1 != v2 {
@@ -54,4 +54,50 @@ func TestCleanKey(t *testing.T) {
 	check(t, maxKey, true)
 	check(t, maxKey+1, false)
 
+}
+
+// This simply generates many random keys and makes sure they are not out of
+// bound.
+func TestRandomKey(t *testing.T) {
+	var count = 100000
+	log.Printf("KeyVal -- TestRandomKey -- Testing %d random keys.\n", count)
+	for i := 0; i < count; i++ {
+		if GetRandomKey() > maxKey {
+			t.Error("Random key was out of bound.")
+		}
+	}
+}
+
+// This simply tests if a zero block is generated with the correct size.
+func TestZeroBlock(t *testing.T) {
+	var testBlock *Block
+	testBlock = GetZeroBlock()
+
+	if testBlock == nil {
+		t.Error("Block was not generated.")
+	}
+	log.Printf("KeyVal -- TestZeroBlock -- Zero block generated with size = %d", len(testBlock))
+	if len(testBlock) != blockSize {
+		t.Error("Block was generated with wrong size.")
+	}
+	for i := 0; i < len(testBlock); i++ {
+		if testBlock[i] != 0 {
+			t.Error("Zero block contains non-zero byte.")
+		}
+	}
+}
+
+// This simply tests if a random block is generated with the correct size.
+func TestRandomBlock(t *testing.T) {
+	var testBlock *Block
+	testBlock = GetRandomBlock()
+
+	if testBlock == nil {
+		t.Error("Block was not generated.")
+	}
+	log.Printf("KeyVal -- TestRandomBlock -- Random block generated with size = %d", len(testBlock))
+
+	if len(testBlock) != blockSize {
+		t.Error("Block was generated with wrong size.")
+	}
 }
