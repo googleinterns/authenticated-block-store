@@ -26,7 +26,7 @@ import (
 
 // The key is 7 least significcant bytes.
 // The highmost byte is reserved for flags.
-const flagMask = uint64(0xFF) << 56
+const flagsMask = uint64(0xFF) << 56
 const keyMask = ^(uint64(0xFF) << 56)
 const maxKey = ^(uint64(0xFF) << 56)
 
@@ -51,7 +51,6 @@ type keyVal struct {
 	key   uint64
 	block *Block
 	flags byte
-	hash  []byte
 }
 
 // A helper function to sort slice of keys, which of are of type uint64.
@@ -70,6 +69,20 @@ func uint64Sort(src []uint64) {
 // Making sure the highest byte of a key is zeroed.
 func CleanKey(keyIn uint64) (uint64, bool) {
 	return keyIn & keyMask, (keyIn >> 56) <= 0
+}
+
+// Encodes a (key, flag) into a uint64.
+func encodeKeyFlags(key uint64, flags byte) uint64 {
+	var val uint64
+	val = ((uint64(flags) << 56) & flagsMask) | (key & keyMask)
+	return val
+}
+
+// Decomposes a uint64 to a (key,flag).
+func decodeKeyFlags(val uint64) (uint64, byte) {
+	var key uint64 = val & keyMask
+	var flags byte = byte((val & flagsMask) >> 56)
+	return key, flags
 }
 
 // Helper function that generates a block of zero.

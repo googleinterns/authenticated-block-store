@@ -59,7 +59,7 @@ func TestCleanKey(t *testing.T) {
 // This simply generates many random keys and makes sure they are not out of
 // bound.
 func TestRandomKey(t *testing.T) {
-	var count = 100000
+	var count = 10000
 	log.Printf("KeyVal -- TestRandomKey -- Testing %d random keys.\n", count)
 	for i := 0; i < count; i++ {
 		if GetRandomKey() > maxKey {
@@ -100,4 +100,38 @@ func TestRandomBlock(t *testing.T) {
 	if len(testBlock) != blockSize {
 		t.Error("Block was generated with wrong size.")
 	}
+}
+
+// Tests encodeKeyFlag and decodeKeyFlag functions.
+// Generates random Key and Flags, ecnodes and decodes them and
+// compares them with originals.
+func TestEncodeDecodeKeyFlags(t *testing.T) {
+	var myKey, outKey uint64
+	var myFlags, outFlags byte
+	var encoded uint64
+	var testSize = 10000
+
+	log.Printf("KeyVal -- TestEncodeDecodeKeyFlags -- Testing %d random key,flags.", testSize)
+
+	myMap := make(map[uint64]bool)
+	for i := 0; i < testSize; i++ {
+		// Generating a new random key.
+		for {
+			myKey = GetRandomKey()
+			if _, exist := myMap[myKey]; exist == false {
+				break
+			}
+		}
+		myMap[myKey] = true
+
+		// Generate a pseodo random flags byte
+		myFlags = byte(len(myMap) * int(myKey))
+		encoded = encodeKeyFlags(myKey, myFlags)
+		outKey, outFlags = decodeKeyFlags(encoded)
+
+		if outKey != myKey || outFlags != myFlags {
+			t.Error("Decoded key/flags doesn't match the original.")
+		}
+	}
+
 }
