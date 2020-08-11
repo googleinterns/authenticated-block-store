@@ -141,7 +141,7 @@ func TestLogWriteRead(t *testing.T) {
 	var err error
 	var testSize = 4 //TODO
 
-	log.Printf("Log -- TestWriteRead -- Testing %d random key,flags,blocks.", testSize)
+	log.Printf("Log -- TestLogWriteRead -- Testing %d random key,flags,blocks.", testSize)
 
 	myMap := make(map[uint64]bool, testSize)
 	sortedKeys = make([]uint64, testSize)

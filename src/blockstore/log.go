@@ -276,6 +276,63 @@ func generateHeader(lh *logHeader) ([]byte, error) {
 	return res, nil
 }
 
+// Generates a merkleTree template out of the list of keyVals.
+// It is supposed to be empty, since it gets populated after block encryptions.
+func generateEmptyTree(kvList []*keyVal) ([][]byte, error) {
+	var hashList [][]byte
+	var numOfLeaves, numOfNodes int
+
+	numOfLeaves = 1
+	for numOfLeaves < len(kvList) {
+		numOfLeaves *= 2
+	}
+
+	// Item [0] will be the encrypted Root, Root will be [1],
+	// and leaves are hash of blocks
+	numOfNodes = 2 * numOfLeaves
+
+	hashList = make([][]byte, numOfNodes, numOfNodes)
+	if hashList == nil {
+		log.Println("Could not allocate memory for hashList.")
+		return nil, errors.New("Could not allocate memory for hashList.")
+	}
+
+	// Pre-allocating all the space for hash list.
+	// This also gives the empty leaves a hash of 0
+	for i := 0; i < numOfNodes; i++ {
+		hashList[i] = make([]byte, hashLength, hashLength)
+		if hashList[i] == nil {
+			log.Println("Could not allocate memory for hashList.")
+			return nil, errors.New("Could not allocate memory for hashList.")
+		}
+	}
+	return hashList, nil
+}
+
+// A helper function that takes a merkle tree with populated leaves, and
+// updates the middle nodes up to the root. Finally it signs the root.
+func updateMerkleTree(hashList [][]byte) error {
+	var err error
+	var firstLeafIndex int
+
+	firstLeafIndex = len(hashList) / 2
+	for i := firstLeafIndex - 1; i > 0; i-- {
+		err = hashData(hashList[i], append(hashList[2*i], hashList[2*i+1]...))
+		if err != nil {
+			log.Println("Failure in calculating hash.")
+			return errors.New("Failure in calculating hash.")
+		}
+	}
+
+	// Finally signing the merkleRoot.
+	err = signMerkleRoot(hashList[0], hashList[1])
+	if err != nil {
+		log.Println("Failure in signing merkle root.")
+		return errors.New("Failure in signing merkle root.")
+	}
+	return nil
+}
+
 /////////////////////////////////////////////////////
 // Methods that are called on a logManager object. //
 /////////////////////////////////////////////////////
@@ -294,11 +351,11 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	var err error
 	var newHeader *logHeader
 	var headerBytes, indexBytes []byte
-	var bytesWritten int
+	var bytesWritten, copiedBytes int
+	var emptyBytes int64
 	var encryptedBlock *Block
 	var hashList [][]byte
-	var numOfLeaves, numOfNodes, firstLeafIndex int
-	var treeOffset int64
+	var firstLeafIndex int
 
 	// Fist assign a new header file.
 	newHeader = new(logHeader)
@@ -312,10 +369,9 @@ func (lm *logManager) write(kvList []*keyVal) error {
 		newHeader.nextLog = lm.headLog
 		newHeader.nextRoot = lm.headLog.merkleRoot
 	}
-
-	//TODO move down after completion/verification of write to
-	// prevent corruption of head.
-	lm.headLog = newHeader
+	// The new log is created and written, but the head pointer will be
+	// updated only after verification of the new file to prevent
+	// corruption of head.
 
 	// Making sure we are writing a NEW file.
 	for checkFileExists(lm.generateName()) {
@@ -339,54 +395,23 @@ func (lm *logManager) write(kvList []*keyVal) error {
 		return errors.New("Could not generate index table.")
 	}
 
-	numOfLeaves = 1
-	for numOfLeaves < len(kvList) {
-		numOfLeaves *= 2
-	}
-	// Item [0] will be the encrypted Root, Root will be [1],
-	// and leaves are hash of blocks
-	numOfNodes = 2 * numOfLeaves
-	firstLeafIndex = numOfLeaves
-
-	hashList = make([][]byte, numOfNodes, numOfNodes)
-	if hashList == nil {
-		log.Println("Could not allocate memory for hashList.")
-		return errors.New("Could not allocate memory for hashList.")
+	hashList, err = generateEmptyTree(kvList)
+	firstLeafIndex = len(hashList) / 2
+	if err != nil {
+		return errors.New("Could not generate empty tree.")
 	}
 
-	// Pre-allocating all the space for hash list.
-	// This also gives the empty leaves a hash of 0
-	for i := 0; i < numOfNodes; i++ {
-		hashList[i] = make([]byte, hashLength, hashLength)
-		if hashList[i] == nil {
-			log.Println("Could not allocate memory for hashList.")
-			return errors.New("Could not allocate memory for hashList.")
-		}
+	// Skipping header, index, tree parts in the file to be filled later.
+	emptyBytes = int64(len(headerBytes) + len(indexBytes) + len(hashList)*hashLength)
+	err = newHeader.file.Truncate(emptyBytes)
+	if err != nil {
+		log.Println("Could not truncate file to size.")
+		return errors.New("Could not truncate file to size.")
 	}
-
-	// Writing each part to file. The tree is not filled yet, an
-	// empty tree is written, and the correct values will be written after
-	// writing the data blocks.
-	bytesWritten, err = newHeader.file.Write(headerBytes)
-	if err != nil || bytesWritten != len(headerBytes) {
-		log.Println("Could not write the header section.")
-		return errors.New("Could not write the header section.")
-	}
-
-	bytesWritten, err = newHeader.file.Write(indexBytes)
-	if err != nil || bytesWritten != len(indexBytes) {
-		log.Println("Could not write the index section.")
-		return errors.New("Could not write the index section.")
-	}
-
-	// Saving the offset, to seek and overwrite after writing data blocks.
-	treeOffset, err = newHeader.file.Seek(0, 1)
-	for i := 0; i < numOfNodes; i++ {
-		bytesWritten, err = newHeader.file.Write(hashList[i])
-		if err != nil || bytesWritten != len(hashList[i]) {
-			log.Println("Could not write the tree section.")
-			return errors.New("Could not write the tre section.")
-		}
+	_, err = newHeader.file.Seek(emptyBytes, 0)
+	if err != nil {
+		log.Println("Failure in seek.")
+		return errors.New("Failure in seek.")
 	}
 
 	// Writing data blocks, which consist bulk of the log file.
@@ -414,24 +439,43 @@ func (lm *logManager) write(kvList []*keyVal) error {
 
 	// Populating the middle nodes of th merkleTree from the leaves up
 	// to the root.
-	for i := firstLeafIndex - 1; i > 0; i-- {
-		err = hashData(hashList[i], append(hashList[2*i], hashList[2*i+1]...))
-		if err != nil {
-			log.Println("Failure in calculating hash.")
-			return errors.New("Failure in calculating hash.")
-		}
-	}
-
-	// Finally signing the merkleRoot.
-	err = signMerkleRoot(hashList[0], hashList[1])
+	err = updateMerkleTree(hashList)
 	if err != nil {
-		log.Println("Failure in signing merkle root.")
-		return errors.New("Failure in signing merkle root.")
+		log.Println("Failure in updating merkle tree.")
+		return errors.New("Failure in updating merkle tree.")
 	}
 
-	// Re-writing the updated tree in the log file.
-	_, err = newHeader.file.Seek(treeOffset, 0)
-	for i := 0; i < numOfNodes; i++ {
+	// Updating the merkle root of this logHeader with the calculated root.
+	newHeader.merkleRoot = make([]byte, hashLength)
+	copiedBytes = copy(newHeader.merkleRoot, hashList[1])
+	if copiedBytes != hashLength {
+		log.Println("Could not save the merkleRoot.")
+		return errors.New("Could not save the merkleRoot.")
+	}
+
+	// Re-writing the header, index table, and updated tree in the log file.
+	_, err = newHeader.file.Seek(0, 0)
+	if err != nil {
+		log.Println("Failure in rewind.")
+		return errors.New("Failure in rewind.")
+	}
+
+	// First is header.
+	bytesWritten, err = newHeader.file.Write(headerBytes)
+	if err != nil || bytesWritten != len(headerBytes) {
+		log.Println("Could not write the header section.")
+		return errors.New("Could not write the header section.")
+	}
+
+	// Next is index table.
+	bytesWritten, err = newHeader.file.Write(indexBytes)
+	if err != nil || bytesWritten != len(indexBytes) {
+		log.Println("Could not write the index section.")
+		return errors.New("Could not write the index section.")
+	}
+
+	// Finaly writing the updated merkle tree.
+	for i := 0; i < len(hashList); i++ {
 		bytesWritten, err = newHeader.file.Write(hashList[i])
 		if err != nil || bytesWritten != len(hashList[i]) {
 			log.Println("Could not write the tree section.")
@@ -439,5 +483,8 @@ func (lm *logManager) write(kvList []*keyVal) error {
 		}
 	}
 
+	// TODO verification of the written file.
+
+	lm.headLog = newHeader
 	return nil
 }

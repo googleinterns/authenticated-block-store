@@ -247,7 +247,7 @@ func (tb *tableManager) updateLRUCacheHead(entry *tableEntry) error {
 	return nil
 }
 
-// Returns a list of dirty keyValentries (For commiting purpose).
+// Returns a list of dirty keyVal entries (For commiting purpose).
 // Note that his returns a pointer to he internal slice.
 // The slice is sorted based on keys.
 func (tb *tableManager) getDirtyList() ([]*keyVal, error) {
