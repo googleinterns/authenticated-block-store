@@ -24,12 +24,12 @@ import (
 // Tries writing to and reading from a table.
 // This will call multiWriteRead function with different number of entries.
 // Starting from 1, doubling the number of entries, until full TableSize.
-func TestWriteRead(t *testing.T) {
+func TestTableWriteRead(t *testing.T) {
 	var testSize int
 
 	testSize = 0
 	for {
-		log.Printf("Table -- TestWriteRead -- Calling multiWriteRead with size = %d\n", testSize)
+		log.Printf("Table -- TestTableWriteRead -- Calling multiWriteRead with size = %d\n", testSize)
 		if multiWriteRead(testSize, t) == false {
 			t.Fatalf("Failed multiple write/read test at size = %d", testSize)
 		}
