@@ -22,24 +22,24 @@ package blockstore
 // highest most byte being zero.
 // The log manager is supposed to be used in the DataBase. The table gets
 // flushed to disk.
-// Each log fiel consists of
+// Each log file consists of
 //  ----------------
 //       HEADER
 //      Key-table
-//     MerkleTree
+//     Merkle Tree
 //     Data blocks
 //  ----------------
 // The header holds the important information about the file and log chain.
 // Such as merkleRoot, merkleRoot of the next log, number of entries.
-// The merkleTree of the dataBlocks is stored to provide authenticity.
+// The merkle tree of the dataBlocks is stored to provide authenticity.
 // The key table is a sorted list of keys, and the offset of corresponding
 // data block.
-// The merkeTree is a binary tree with leaves being hash of data blocks, and
+// The merkle tree is a binary tree with leaves being hash of data blocks, and
 // each parent node being hash of its children, all the way to the root.
 // Furthermore, we include a signed version of the merkleRoot for authenticity
-// Each hash is a []byte, and the merkleTree itself is list of hash, thus it is
+// Each hash is a []byte, and the merkle tree itself is list of hash, thus it is
 // defined as [][]byte.
-// The number of leaves would be the first power of 2 greateror equal to number
+// The number of leaves is the first power of 2 greater than or equal to number
 // of data blocks. For all the empty leaves (no data block), we put 0 hash.
 // We also have the same number of middle nodes (including the signed root)
 // Example: For a list of size [5..8], we would have 8 leaves, and 16 hash in
@@ -115,7 +115,8 @@ type logManager struct {
 
 // Constructs a log manager and initialize the members.
 // TODO accept path/default name.
-// TODO verify the same path/prefix does not exist.
+// TODO verify the same path/prefix does not exist. instead, it should be able
+// to open an existing chain, and keep a handle to each file.
 func newLogManager() (*logManager, error) {
 	var lm *logManager = new(logManager)
 	if lm == nil {
@@ -276,20 +277,13 @@ func generateHeader(lh *logHeader) ([]byte, error) {
 	return res, nil
 }
 
-// Generates a merkleTree template out of the list of keyVals.
+// Generates a merkle tree template. It only needs the number of keys.
 // It is supposed to be empty, since it gets populated after block encryptions.
-func generateEmptyTree(kvList []*keyVal) ([][]byte, error) {
+func generateEmptyTree(items int) ([][]byte, error) {
 	var hashList [][]byte
-	var numOfLeaves, numOfNodes int
+	var numOfNodes int
 
-	numOfLeaves = 1
-	for numOfLeaves < len(kvList) {
-		numOfLeaves *= 2
-	}
-
-	// Item [0] will be the encrypted Root, Root will be [1],
-	// and leaves are hash of blocks
-	numOfNodes = 2 * numOfLeaves
+	_, numOfNodes = getTreeSize(items)
 
 	hashList = make([][]byte, numOfNodes, numOfNodes)
 	if hashList == nil {
@@ -315,7 +309,7 @@ func updateMerkleTree(hashList [][]byte) error {
 	var err error
 	var firstLeafIndex int
 
-	firstLeafIndex = len(hashList) / 2
+	firstLeafIndex = getFirstLeafIndex(hashList)
 	for i := firstLeafIndex - 1; i > 0; i-- {
 		err = hashData(hashList[i], append(hashList[2*i], hashList[2*i+1]...))
 		if err != nil {
@@ -331,6 +325,233 @@ func updateMerkleTree(hashList [][]byte) error {
 		return errors.New("Failure in signing merkle root.")
 	}
 	return nil
+}
+
+// Function that takes a logHeader and reads the whole merkle tree from
+// corresponding log file, into memory. This can be improved by selectively
+// reading only the hashes in the tree that are going to be needed.
+func readTreeFromFile(lh *logHeader) [][]byte {
+	var hashList [][]byte
+	var err error
+	var bytesRead int
+	hashList, err = generateEmptyTree(lh.numOfKeys)
+	if err != nil {
+		log.Println("Failure in creating tree.")
+		return nil
+	}
+
+	_, err = lh.file.Seek(getTreeOffset(lh), 0)
+	if err != nil {
+		log.Println("Failure in seek.")
+		return nil
+	}
+
+	for i := 0; i < len(hashList); i++ {
+		bytesRead, err = lh.file.Read(hashList[i])
+		if err != nil || bytesRead != hashLength {
+			log.Println("Failure in reading tree.")
+			return nil
+		}
+	}
+
+	return hashList
+}
+
+// Function that takes a logHeader and reads a single block from the file.
+// Creates a new Block, or returns nil upon error.
+func readBlockFromFile(lh *logHeader, index int) *Block {
+	var err error
+	var bytesRead int
+	var tmpData []byte
+	var block *Block = new(Block)
+
+	tmpData = make([]byte, blockSize)
+	dataOffset := getDataOffset(lh)
+
+	_, err = lh.file.Seek(dataOffset+int64(index*blockSize), 0)
+	if err != nil {
+		log.Println("Failure in seek.")
+		return nil
+	}
+
+	bytesRead, err = lh.file.Read(tmpData)
+	if err != nil || bytesRead != blockSize {
+		log.Println("Failure in reading block.")
+		return nil
+	}
+
+	for i, b := range tmpData {
+		block[i] = b
+	}
+
+	return block
+}
+
+// A helper function that takes a logHeader and based on the
+// number of keys, returns the offset in file for index table.
+func getIndexOffset(lh *logHeader) int64 {
+	return int64(defaultHeaderSize)
+}
+
+// A helper function that takes a logHeader and based on the
+// number of keys, returns the offset in file for merkle tree.
+func getTreeOffset(lh *logHeader) int64 {
+	return int64(defaultHeaderSize + 8*lh.numOfKeys)
+}
+
+// A helper function that takes a logHeader and based on the
+// number of keys, returns the offset in file for data block[index].
+func getDataOffset(lh *logHeader) int64 {
+	_, numOfNodes := getTreeSize(lh.numOfKeys)
+	return int64(defaultHeaderSize + 8*lh.numOfKeys + hashLength*numOfNodes)
+}
+
+// A helper function thad calculates how many leaves and total nodes merkle tree
+// needs. The number of leaves is the smalles power of two that can contain
+// the items.
+func getTreeSize(items int) (int, int) {
+	var numOfLeaves, numOfNodes int
+
+	numOfLeaves = 1
+	for numOfLeaves < items {
+		numOfLeaves *= 2
+	}
+
+	// Item [0] will be the encrypted Root, Root will be [1],
+	// and leaves are hash of blocks
+	numOfNodes = 2 * numOfLeaves
+	return numOfLeaves, numOfNodes
+}
+
+// Function that checks a merkle tree root to match to that of the logHeader,
+// and make sure it is authenticated.
+func validateMerkleRoot(lh *logHeader, hashList [][]byte) bool {
+	var tmpHash []byte
+	if !compareHash(lh.merkleRoot, hashList[1]) {
+		return false
+	}
+
+	tmpHash = make([]byte, hashLength)
+	signMerkleRoot(tmpHash, hashList[1])
+	if !compareHash(tmpHash, hashList[0]) {
+		return false
+	}
+
+	return true
+}
+
+// A helper function that returns the index of first Leaf in the merkle Tree
+// In a binary tree, it is very simple as the number of leaves and other nodes
+// are equal.
+func getFirstLeafIndex(hashList [][]byte) int {
+	return len(hashList) / 2
+}
+
+// A helper function that compares two []byte of hashes for a match.
+func compareHash(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, v := range a {
+		if b[i] != v {
+			return false
+		}
+	}
+	return true
+
+}
+
+// A function that takes a merkle tree, a block and the index of the block,
+// and validates the authenticity of the block by calculating and verifying
+// all the hashes from the leaf to the root.
+func validateBlock(hashList [][]byte, block *Block, index int) bool {
+	var tmpHash []byte
+	var err error
+	var firstLeafIndex int
+	var nodeID int
+
+	tmpHash = make([]byte, hashLength)
+
+	// First calculating the hash of the block
+	err = hashData(tmpHash, block[:])
+	if err != nil {
+		return false
+	}
+
+	// Comparing with existing hash in the tree
+	firstLeafIndex = getFirstLeafIndex(hashList)
+	if !compareHash(tmpHash, hashList[firstLeafIndex+index]) {
+		return false
+	}
+
+	// Validating rest of the tree up to the root.
+	// In the case of binary tree, ID of the parent = ID of child / 2
+	for nodeID = index / 2; nodeID > 0; nodeID /= 2 {
+		// calculating the hash of the node from its children.
+		err = hashData(tmpHash, append(hashList[2*nodeID], hashList[2*nodeID+1]...))
+		if err != nil {
+			return false
+		}
+
+		// Comparing with existing hash in the tree
+		if !compareHash(tmpHash, hashList[nodeID]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Function that takes a logHeader, checks the file for a target Key.
+// If the key is found, creates a keyval entry and populates it with
+// the key and the flags. Returns the keyval entry and the index of the key
+// within the indexTable. Returns nil if the key is not found.
+func isKeyInFile(targetKey uint64, lh *logHeader) (*keyVal, int, error) {
+	var kv *keyVal
+	var err error
+	var start, end, index int
+	var compactKey, myKey uint64
+	var flags byte
+
+	var tmpData []byte
+	var bytesRead int
+
+	// Reading the key index table to memory for fast search.
+	tmpData = make([]byte, 8*lh.numOfKeys)
+	_, err = lh.file.Seek(getIndexOffset(lh), 0)
+	if err != nil {
+		log.Println("Failure in seek.")
+		return nil, 0, errors.New("Failure in seek.")
+	}
+
+	bytesRead, err = lh.file.Read(tmpData)
+	if err != nil || bytesRead != len(tmpData) {
+		log.Println("Failure in reading index table.")
+		return nil, 0, errors.New("Failure in reading index table.")
+	}
+
+	// Now searching the table using binary search, ignoring flags.
+	start = 0
+	end = lh.numOfKeys - 1
+
+	for start <= end {
+		index = start + (end-start)/2
+		compactKey = binary.LittleEndian.Uint64(tmpData[8*index : 8*index+8])
+		myKey, flags = decodeKeyFlags(compactKey)
+		if myKey == targetKey {
+			kv = new(keyVal)
+			kv.key = myKey
+			kv.flags = flags
+			return kv, index, nil
+		}
+		if myKey > targetKey {
+			end = index - 1
+		} else {
+			start = index + 1
+		}
+	}
+
+	return nil, 0, nil
 }
 
 /////////////////////////////////////////////////////
@@ -383,8 +604,10 @@ func (lm *logManager) write(kvList []*keyVal) error {
 		return errors.New("Could not create log file.")
 	}
 	lm.nextFD++
+	// The file does not get closed. It is kept open to access it for reads
+	// and other methods. It only gets created, written, and synched.
 
-	// Generate the header, key index table, and merkleTree in memory.
+	// Generate the header, key index table, and merkle tree in memory.
 	headerBytes, err = generateHeader(newHeader)
 	if err != nil {
 		return errors.New("Could not generate header.")
@@ -395,8 +618,8 @@ func (lm *logManager) write(kvList []*keyVal) error {
 		return errors.New("Could not generate index table.")
 	}
 
-	hashList, err = generateEmptyTree(kvList)
-	firstLeafIndex = len(hashList) / 2
+	hashList, err = generateEmptyTree(len(kvList))
+	firstLeafIndex = getFirstLeafIndex(hashList)
 	if err != nil {
 		return errors.New("Could not generate empty tree.")
 	}
@@ -437,7 +660,7 @@ func (lm *logManager) write(kvList []*keyVal) error {
 
 	}
 
-	// Populating the middle nodes of th merkleTree from the leaves up
+	// Populating the middle nodes of the merkle tree from the leaves up
 	// to the root.
 	err = updateMerkleTree(hashList)
 	if err != nil {
@@ -483,8 +706,80 @@ func (lm *logManager) write(kvList []*keyVal) error {
 		}
 	}
 
+	// Force flush the system buffer.
+	newHeader.file.Sync()
 	// TODO verification of the written file.
 
 	lm.headLog = newHeader
 	return nil
+}
+
+// Function that tries to read a key from the log files.
+// Starts from the head and moves down the chain, looking in each file
+// for the key.  If it does not find the key, returns nil.
+// If a key is written as removed, it will be retured with the removed flag.
+// The caller can then check it.
+func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
+	var err error
+	var lh *logHeader
+	var targetKey uint64
+	var ok bool
+	var index int
+	var kv *keyVal
+	var hashList [][]byte
+
+	targetKey, ok = CleanKey(keyIn)
+	if !ok {
+		log.Println("Key out of range.")
+		return nil, errors.New("Key out of range.")
+	}
+
+	// Iterating over the chain
+	for lh = lm.headLog; lh != nil; lh = lh.nextLog {
+		kv, index, err = isKeyInFile(targetKey, lh)
+		if err != nil {
+			log.Println("Failure in checking file for key.")
+			return nil, errors.New("Failure in checking file for key.")
+		}
+		// Found the key in file.
+		if kv != nil {
+			break
+		}
+	}
+	if kv == nil {
+		return nil, nil
+	}
+
+	// Both need the data block, and the whole merkle tree to validate.
+	// first reading the tree, to seek forward.
+	hashList = readTreeFromFile(lh)
+	if hashList == nil {
+		log.Println("Failure in reading tree from file.")
+		return nil, errors.New("Failure in reading tree from file.")
+	}
+
+	// Checking the merkleRoot first.
+	ok = validateMerkleRoot(lh, hashList)
+	if !ok {
+		log.Println("Could not validate the merkle root.")
+		return nil, errors.New("Could not validate the merkle root.")
+
+	}
+
+	// Reading the target block.
+	kv.block = readBlockFromFile(lh, index)
+	if kv.block == nil {
+		log.Println("Failure in reading block from file.")
+		return nil, errors.New("Failure in reading block from file.")
+	}
+
+	// Finally, validating the block in the tree.
+	ok = validateBlock(hashList, kv.block, index)
+	if !ok {
+		log.Println("Could not validate the block in the merkle tree.")
+		return nil, errors.New("Could not validate the block in the merkle tree.")
+	}
+
+	return kv, nil
+
 }

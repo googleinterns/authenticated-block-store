@@ -100,7 +100,7 @@ func TestIndex(t *testing.T) {
 
 	inKV = make([]*keyVal, testSize)
 	for i := 0; i < testSize; i++ {
-		// Generate a pseodo random flags byte
+		// Generate a pseudo random flags byte
 		myKey = sortedKeys[i]
 		myFlags = byte(i * int(myKey))
 		kv = new(keyVal)
@@ -128,9 +128,8 @@ func TestIndex(t *testing.T) {
 }
 
 // Writes keyVals to the log and then reads them.
-// TODO add reading of the written file and compare.
+// Then tries reading nonexistent keys.
 // TODO first make it work for the headlog, then the chain
-// TODO add authenticity verification with merkleTree.
 func TestLogWriteRead(t *testing.T) {
 	var lm *logManager
 	var inKV []*keyVal
@@ -139,7 +138,7 @@ func TestLogWriteRead(t *testing.T) {
 	var sortedKeys []uint64
 	var myFlags byte
 	var err error
-	var testSize = 4 //TODO
+	var testSize = 100
 
 	log.Printf("Log -- TestLogWriteRead -- Testing %d random key,flags,blocks.", testSize)
 
@@ -179,5 +178,40 @@ func TestLogWriteRead(t *testing.T) {
 	err = lm.write(inKV)
 	if err != nil {
 		t.Fatal("Write failed.")
+	}
+
+	// Reading each and every key from the file and compare them.
+	for i := 0; i < testSize; i++ {
+		kv, err = lm.read(inKV[i].key)
+		if err != nil {
+			t.Fatal("Read error.")
+		}
+		if kv == nil || kv.block == nil {
+			t.Fatal("Written key not found or empty")
+		}
+		if kv.key != inKV[i].key || kv.flags != inKV[i].flags {
+			t.Fatal("Written key found, but does not match.")
+		}
+
+		for j, v := range inKV[i].block {
+			if kv.block[j] != v {
+				t.Fatal("Written key found, but data block does not match.")
+			}
+		}
+	}
+
+	// Reading non-existing keys
+	for i := 0; i < testSize; i++ {
+		// Generating a new random key.
+		for {
+			myKey = GetRandomKey()
+			if _, exist := myMap[myKey]; exist == false {
+				break
+			}
+		}
+		kv, err = lm.read(maxKey)
+		if err != nil || kv != nil {
+			t.Fatal("Unexpected behavior when searching for nonexistent key.")
+		}
 	}
 }
