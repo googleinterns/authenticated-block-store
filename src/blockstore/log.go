@@ -124,6 +124,12 @@ func newLogManager() (*logManager, error) {
 	}
 	lm.namePrefix = defaultPrefix
 	lm.nextFD = 0
+
+	// Creating random generator.
+	if myRand == nil {
+		myRand = randomGen()
+	}
+
 	return lm, nil
 }
 

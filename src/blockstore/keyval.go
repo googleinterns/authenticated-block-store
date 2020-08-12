@@ -30,6 +30,9 @@ const flagsMask = uint64(0xFF) << 56
 const keyMask = ^(uint64(0xFF) << 56)
 const maxKey = ^(uint64(0xFF) << 56)
 
+// The random generator which will be seeded once.
+var myRand *rand.Rand
+
 // This block describes flag bits.
 const (
 	// Defines if an entry is modified/dirty
@@ -97,7 +100,6 @@ func GetZeroBlock() *Block {
 // Helper function that generates a block of random data.
 func GetRandomBlock() *Block {
 	var newBlock *Block = new(Block)
-	myRand := randomGen()
 	for index, _ := range newBlock {
 		newBlock[index] = byte(myRand.Intn(256))
 	}
@@ -106,7 +108,6 @@ func GetRandomBlock() *Block {
 
 // Helper function that generates a random key.
 func GetRandomKey() uint64 {
-	myRand := randomGen()
 	return uint64(myRand.Intn(int(maxKey)))
 }
 

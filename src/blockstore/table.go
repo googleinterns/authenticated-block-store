@@ -80,6 +80,12 @@ func newTableManager() (*tableManager, error) {
 
 	tb.lruHead.lruNext = tb.lruTail
 	tb.lruTail.lruPrev = tb.lruHead
+
+	// Creating random generator.
+	if myRand == nil {
+		myRand = randomGen()
+	}
+
 	return tb, nil
 }
 
