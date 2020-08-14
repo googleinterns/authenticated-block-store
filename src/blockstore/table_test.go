@@ -101,7 +101,7 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 }
 
 // Tests if the table returns correct dirtyList.
-// Writes blocks without commiting, then verifying the result from DirtyList method.
+// Writes blocks without committing, then verifying the result from DirtyList method.
 // Starting from 1, doubling the number of entries, until full TableSize.
 func TestDirtyList(t *testing.T) {
 	var myKey uint64
@@ -237,7 +237,7 @@ func TestCommit(t *testing.T) {
 }
 
 // Writes the table, rewriting each entry multiple times.
-// Each time a new datablock is generated and compared with the updated entry.
+// Each time a new data block is generated and compared with the updated entry.
 func TestReWrite(t *testing.T) {
 	var myKey uint64
 	var kv *keyVal
@@ -367,7 +367,7 @@ func TestMarkRemove(t *testing.T) {
 
 // Tests if removing entries works. First fills the table. Then removes entries
 // one by one and checks removal. Then retries filling the table and repeat
-// multiple times to ensure functinoality.
+// multiple times to ensure functionality.
 func TestRemove(t *testing.T) {
 	var myKey uint64
 	var keys []uint64
@@ -500,8 +500,8 @@ func TestCache(t *testing.T) {
 		keysC = append(keysC, myKey)
 		keysUC = append(keysUC[:index], keysUC[index+1:]...)
 	}
-	// After commiting testSize entries, we should be able to add exactly testSize
-	// entries again. Note that eventhough we committed by random, we accessed
+	// After committing testSize entries, we should be able to add exactly testSize
+	// entries again. Note that even though we committed by random, we accessed
 	// entries from the sorted keysUC list. So the evicted ones will also be sorted.
 	log.Printf("Table -- TestCache -- Adding %d new entries to the full table.", testSize)
 	uint64Sort(keysC)

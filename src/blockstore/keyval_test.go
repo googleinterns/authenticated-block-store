@@ -104,7 +104,7 @@ func TestRandomBlock(t *testing.T) {
 }
 
 // Tests encodeKeyFlag and decodeKeyFlag functions.
-// Generates random Key and Flags, ecnodes and decodes them and
+// Generates random Key and Flags, encodes and decodes them and
 // compares them with originals.
 func TestEncodeDecodeKeyFlags(t *testing.T) {
 	var myKey, outKey uint64
@@ -125,7 +125,7 @@ func TestEncodeDecodeKeyFlags(t *testing.T) {
 		}
 		myMap[myKey] = true
 
-		// Generate a pseodo random flags byte
+		// Generate a pseudo random flags byte
 		myFlags = byte(len(myMap) * int(myKey))
 		encoded = encodeKeyFlags(myKey, myFlags)
 		outKey, outFlags = decodeKeyFlags(encoded)

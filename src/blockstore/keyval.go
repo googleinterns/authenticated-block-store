@@ -24,8 +24,8 @@ import (
 	"time"
 )
 
-// The key is 7 least significcant bytes.
-// The highmost byte is reserved for flags.
+// The key is 7 least significant bytes.
+// The most significant byte is reserved for flags.
 const flagsMask = uint64(0xFF) << 56
 const keyMask = ^(uint64(0xFF) << 56)
 const maxKey = ^(uint64(0xFF) << 56)

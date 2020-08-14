@@ -129,7 +129,7 @@ func TestIndex(t *testing.T) {
 
 // Writes keyVals to the log and then reads them.
 // Then tries reading nonexistent keys.
-// TODO first make it work for the headlog, then the chain
+// TODO first make it work for the headLog, then the chain
 func TestLogWriteRead(t *testing.T) {
 	var lm *logManager
 	var inKV []*keyVal
@@ -159,7 +159,7 @@ func TestLogWriteRead(t *testing.T) {
 
 	inKV = make([]*keyVal, testSize)
 	for i := 0; i < testSize; i++ {
-		// Generate a pseodo random flags byte
+		// Generate a pseudo random flags byte
 		myKey = sortedKeys[i]
 		myFlags = byte(i * int(myKey))
 		kv = new(keyVal)

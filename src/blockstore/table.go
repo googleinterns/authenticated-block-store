@@ -158,8 +158,8 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 
 // A key removal is 3 steps:
 // 1-Mark as removed: Resides in the table, but not retrievable by read.
-// 2-Mark as committed: The key is explicitly marked as commited.
-// 3-Once an entry that is marked for removal is commited, it is removed.
+// 2-Mark as committed: The key is explicitly marked as committed.
+// 3-Once an entry that is marked for removal is committed, it is removed.
 func (tb *tableManager) markRemove(keyIn uint64) error {
 	var err error
 	var entry *tableEntry
@@ -180,8 +180,8 @@ func (tb *tableManager) markRemove(keyIn uint64) error {
 // remove() is not expected to be called from outside.
 // A key removal is 3 steps:
 // 1-Mark as removed: Resides in the table, but not retrievable by read.
-// 2-Mark as committed: The key is explicitly marked as commited.
-// 3-Once an entry that is marked for removal is commited, it is removed.
+// 2-Mark as committed: The key is explicitly marked as committed.
+// 3-Once an entry that is marked for removal is committed, it is removed.
 func (tb *tableManager) remove(keyIn uint64) error {
 	key, ok := CleanKey(keyIn)
 	if !ok {
@@ -199,7 +199,7 @@ func (tb *tableManager) remove(keyIn uint64) error {
 	return nil
 }
 
-// Marks an entry as commited. e.g. called after writing to log file.
+// Marks an entry as committted. e.g. called after writing to log file.
 func (tb *tableManager) commitKey(keyIn uint64) error {
 	key, ok := CleanKey(keyIn)
 	if !ok {
@@ -212,7 +212,7 @@ func (tb *tableManager) commitKey(keyIn uint64) error {
 		return errors.New("Key not found in table.")
 	}
 	if entry.kv.flags&flagDirty == 0 {
-		// It is already comited.
+		// It is already committed.
 		return nil
 	}
 	// If it has been marked for removal, the entry is then removed.
@@ -253,7 +253,7 @@ func (tb *tableManager) updateLRUCacheHead(entry *tableEntry) error {
 	return nil
 }
 
-// Returns a list of dirty keyVal entries (For commiting purpose).
+// Returns a list of dirty keyVal entries (For committing purpose).
 // Note that his returns a pointer to he internal slice.
 // The slice is sorted based on keys.
 func (tb *tableManager) getDirtyList() ([]*keyVal, error) {
@@ -263,7 +263,7 @@ func (tb *tableManager) getDirtyList() ([]*keyVal, error) {
 			sortedKeys = append(sortedKeys, k)
 		}
 	}
-	// Now sort the list of dirtyKeys
+	// Now sort the list of dirty keys.
 	uint64Sort(sortedKeys)
 
 	// Reset the slice.
