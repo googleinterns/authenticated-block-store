@@ -20,7 +20,7 @@ package blockstore
 // Including a LRU (Least Recently Used) approximation cache. The keys are
 // 7-byte long integers. i.e. uint64 numbers with highest most byte being zero.
 // The "value"s are tableEntry struct pointers. Each entry holds a pointer to
-// // a data block, and pointers for implementing a LRU cache.
+// a data block, and pointers for implementing a LRU cache.
 // This table is supposed to be used in the DataBase. It is basically a cached
 // version of the log files, held in memory for faster reads, and a place for
 // writes, before a commit is made to the log files.
@@ -81,7 +81,7 @@ func newTableManager() (*tableManager, error) {
 	tb.lruHead.lruNext = tb.lruTail
 	tb.lruTail.lruPrev = tb.lruHead
 
-	// Creating random generator.
+	// Create a random generator.
 	if myRand == nil {
 		myRand = randomGen()
 	}
@@ -130,7 +130,7 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 	entry, err := tb.getEntry(key)
 	if err != nil {
 		if len(tb.data) >= tableSize {
-			// Table is full, we need to pick a cache victim.
+			// Table is full, pick a cache victim.
 			err := tb.evict()
 			if err != nil {
 				return errors.New("Table is full and needs to be flushed.")
@@ -200,6 +200,7 @@ func (tb *tableManager) remove(keyIn uint64) error {
 }
 
 // Marks an entry as committted. e.g. called after writing to log file.
+// TODO currently only accepts single key at a time.
 func (tb *tableManager) commitKey(keyIn uint64) error {
 	key, ok := CleanKey(keyIn)
 	if !ok {
@@ -238,7 +239,7 @@ func (tb *tableManager) removeFromLRUCache(entry *tableEntry) error {
 	return nil
 }
 
-// Moves an entry to the head of LRU list. e.g. upon recent usage or commit.
+// Moves an entry to the head of LRU list. e.g. upon recent read or write.
 func (tb *tableManager) updateLRUCacheHead(entry *tableEntry) error {
 	if entry == nil || entry == tb.lruHead || entry == tb.lruTail {
 		return errors.New("Table entry not valid")
@@ -254,7 +255,7 @@ func (tb *tableManager) updateLRUCacheHead(entry *tableEntry) error {
 }
 
 // Returns a list of dirty keyVal entries (For committing purpose).
-// Note that his returns a pointer to he internal slice.
+// Note that this returns a pointer to he internal slice.
 // The slice is sorted based on keys.
 func (tb *tableManager) getDirtyList() ([]*keyVal, error) {
 	sortedKeys := make([]uint64, 0, tableSize)
@@ -268,7 +269,7 @@ func (tb *tableManager) getDirtyList() ([]*keyVal, error) {
 
 	// Reset the slice.
 	tb.dirtyList = tb.dirtyList[:0]
-	// Adding keyVals to the dirtyList, sorted by key.
+	// Add keyVals to the dirtyList, sorted by key.
 	for _, k := range sortedKeys {
 		tb.dirtyList = append(tb.dirtyList, tb.data[k].kv)
 	}
@@ -279,7 +280,7 @@ func (tb *tableManager) getDirtyList() ([]*keyVal, error) {
 func (tb *tableManager) evict() error {
 	var victim *tableEntry
 
-	// Sweeping from tail to head, looking for a non-dirty candidate.
+	// Sweep from tail to head, looking for a non-dirty candidate.
 	dirtyFound := false
 	for victim = tb.lruTail.lruPrev; victim != tb.lruHead; victim = victim.lruPrev {
 		if victim.kv.flags&flagDirty == 0 {

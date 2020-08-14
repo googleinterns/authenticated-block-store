@@ -69,7 +69,7 @@ func uint64Sort(src []uint64) {
 	}
 }
 
-// Making sure the highest byte of a key is zeroed.
+// Function that makes sure the most significant byte of a key is zeroed.
 func CleanKey(keyIn uint64) (uint64, bool) {
 	return keyIn & keyMask, (keyIn >> 56) <= 0
 }
@@ -81,7 +81,7 @@ func encodeKeyFlags(key uint64, flags byte) uint64 {
 	return val
 }
 
-// Decomposes a uint64 to a (key,flag).
+// Decomposes a uint64 to a (key, flag).
 func decodeKeyFlags(val uint64) (uint64, byte) {
 	var key uint64 = val & keyMask
 	var flags byte = byte((val & flagsMask) >> 56)
@@ -111,6 +111,7 @@ func GetRandomKey() uint64 {
 	return uint64(myRand.Intn(int(maxKey)))
 }
 
+// Creates a random generator and seeds it.
 func randomGen() *rand.Rand {
 	seed := rand.NewSource(time.Now().UnixNano())
 	random := rand.New(seed)

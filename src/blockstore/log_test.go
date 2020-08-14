@@ -21,6 +21,7 @@ import (
 	"testing"
 )
 
+// Tests if the encryption and decryption of a block is correct.
 func TestEncryptDecrypt(t *testing.T) {
 	var b1, b2, b3 *Block
 
@@ -35,7 +36,7 @@ func TestEncryptDecrypt(t *testing.T) {
 	}
 
 	encryptBlock(b2, b1)
-	// Testing the dummy encryption, which is identical to source.
+	// Tests the dummy encryption, which is identical to source.
 	for i, v := range b1 {
 		if b2[i] != v {
 			t.Error("Encrypted block does not match to original.")
@@ -53,6 +54,7 @@ func TestEncryptDecrypt(t *testing.T) {
 
 }
 
+// A simple function that tests hash wrapper.
 func TestHash(t *testing.T) {
 	s := []byte("TEST")
 	ref := []byte{152, 72, 22, 253, 50, 150, 34, 135, 110, 20, 144, 118, 52, 38, 78, 111, 51, 46, 159, 179}
@@ -71,6 +73,7 @@ func TestHash(t *testing.T) {
 	}
 }
 
+// Tests the generation of the index table from keyVals, and decomposing them back.
 func TestIndex(t *testing.T) {
 	var inKV, outKV []*keyVal
 	var converted []byte
@@ -86,7 +89,7 @@ func TestIndex(t *testing.T) {
 	myMap := make(map[uint64]bool, testSize)
 	sortedKeys = make([]uint64, testSize)
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if _, exist := myMap[myKey]; exist == false {
@@ -129,7 +132,7 @@ func TestIndex(t *testing.T) {
 
 // Writes keyVals to the log and then reads them.
 // Then tries reading nonexistent keys.
-// TODO first make it work for the headLog, then the chain
+// TODO first make it work for the headLog, then the chain.
 func TestLogWriteRead(t *testing.T) {
 	var lm *logManager
 	var inKV []*keyVal
@@ -145,7 +148,7 @@ func TestLogWriteRead(t *testing.T) {
 	myMap := make(map[uint64]bool, testSize)
 	sortedKeys = make([]uint64, testSize)
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if _, exist := myMap[myKey]; exist == false {
@@ -180,7 +183,7 @@ func TestLogWriteRead(t *testing.T) {
 		t.Fatal("Write failed.")
 	}
 
-	// Reading each and every key from the file and compare them.
+	// Read each and every key from the file and compare them.
 	for i := 0; i < testSize; i++ {
 		kv, err = lm.read(inKV[i].key)
 		if err != nil {
@@ -200,9 +203,9 @@ func TestLogWriteRead(t *testing.T) {
 		}
 	}
 
-	// Reading non-existing keys
+	// Read non-existing keys
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if _, exist := myMap[myKey]; exist == false {

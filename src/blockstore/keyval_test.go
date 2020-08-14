@@ -39,7 +39,7 @@ func check(t *testing.T, v1 uint64, expect bool) {
 	}
 }
 
-// Checks different keys. Starting from 0, 1, then shifts it by 4 bits until
+// Checks different keys. Starts from 0, 1, then shifts it by 4 bits until
 // reaching the bound. Then goes further and makes sure CleanKey rejects.
 func TestCleanKey(t *testing.T) {
 	var key uint64
@@ -137,7 +137,7 @@ func TestEncodeDecodeKeyFlags(t *testing.T) {
 
 }
 
-// Adding the initializer for random generator for the test functions.
+// The initializer for random generator for the test functions.
 func TestMain(m *testing.M) {
 	if myRand == nil {
 		myRand = randomGen()

@@ -21,9 +21,9 @@ import (
 	"testing"
 )
 
-// Tries writing to and reading from a table.
-// This will call multiWriteRead function with different number of entries.
-// Starting from 1, doubling the number of entries, until full TableSize.
+// Tries writing to, and reading from a table.
+// This calls multiWriteRead function with different number of entries.
+// Starts from 1, doubles the number of entries, until full TableSize.
 func TestTableWriteRead(t *testing.T) {
 	var testSize int
 
@@ -66,7 +66,7 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 	}
 
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -101,8 +101,8 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 }
 
 // Tests if the table returns correct dirtyList.
-// Writes blocks without committing, then verifying the result from DirtyList method.
-// Starting from 1, doubling the number of entries, until full TableSize.
+// Writes blocks without committing, then verifies the result from DirtyList method.
+// Starts from 1, doubles the number of entries, until full TableSize.
 func TestDirtyList(t *testing.T) {
 	var myKey uint64
 	var sortedKeys []uint64
@@ -121,7 +121,7 @@ func TestDirtyList(t *testing.T) {
 	index = 0
 	for {
 		for ; index < testSize; index++ {
-			// Generating a new random key.
+			// Generate a new random key.
 			for {
 				myKey = GetRandomKey()
 				if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -184,7 +184,7 @@ func TestCommit(t *testing.T) {
 	}
 
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -204,7 +204,7 @@ func TestCommit(t *testing.T) {
 	var index int
 	for {
 
-		// Random commits
+		// Make random commits.
 		for len(sortedKeys) > testSize {
 			index = (myRand.Intn(len(sortedKeys)))
 			err = tb.commitKey(sortedKeys[index])
@@ -254,7 +254,7 @@ func TestReWrite(t *testing.T) {
 
 	log.Printf("Table -- TestReWrite -- Writing %d entries, each on %d times.", testSize, retries)
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -300,7 +300,7 @@ func TestMarkRemove(t *testing.T) {
 
 	log.Printf("Table -- TestMarkRemove -- Writing %d entries, mark each for removal.", testSize)
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -323,7 +323,7 @@ func TestMarkRemove(t *testing.T) {
 			t.Fatalf("Entry #%d read failed: Block does not match.", i)
 		}
 
-		// Marking same key for removal.
+		// Mark the same key for removal.
 		err = tb.markRemove(myKey)
 		if err != nil {
 			t.Fatalf("Entry #%d first call to markRemove failed.", i)
@@ -343,7 +343,7 @@ func TestMarkRemove(t *testing.T) {
 			t.Fatalf("Entry #%d read failed: Block is not nil after markRemove.", i)
 		}
 
-		// Marking same key for removal again.
+		// Mark the same key for removal again.
 		err = tb.markRemove(myKey)
 		if err != nil {
 			t.Fatalf("Entry #%d second call to markRemove failed.", i)
@@ -386,9 +386,9 @@ func TestRemove(t *testing.T) {
 	log.Printf("Table -- TestRemove -- Writing %d entries, removing one bye one, and repeating %d times.", testSize, retries)
 	for try := 1; try <= retries; try++ {
 		keys = keys[:0]
-		// Filling the table.
+		// Fill the table.
 		for i := 0; i < testSize; i++ {
-			// Generating a new random key.
+			// Generate new random key.
 			for {
 				myKey = GetRandomKey()
 				if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -404,8 +404,8 @@ func TestRemove(t *testing.T) {
 				t.Fatal("Write failed: Error occured during write.")
 			}
 		}
-		// Making sure the table is full.
-		// Generating a new random key.
+		// Make sure the table is full.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -417,7 +417,7 @@ func TestRemove(t *testing.T) {
 		if err == nil {
 			t.Fatal("Write succeeded unexpectedly. The table should have been full.")
 		}
-		// Removing entries one by one.
+		// Remove entries one by one.
 		for i := 0; i < testSize; i++ {
 			err = tb.markRemove(keys[i])
 			if err != nil {
@@ -447,7 +447,8 @@ func TestRemove(t *testing.T) {
 func TestCache(t *testing.T) {
 	var myKey uint64
 	var kv *keyVal
-	var keysUC, keysC []uint64 //uncommitted and committed
+	// List of uncommitted and committed keys.
+	var keysUC, keysC []uint64
 	var writeBlock *Block
 	var err error
 	var tb *tableManager
@@ -463,7 +464,7 @@ func TestCache(t *testing.T) {
 
 	log.Printf("Table -- TestCache -- Writing all %d entries.\n", tableSize)
 	for i := 0; i < tableSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -478,10 +479,10 @@ func TestCache(t *testing.T) {
 			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
 		}
 	}
-	// Sorting keysUC by key, to change the order of reads.
+	// Sort keysUC by key, to change the order of reads.
 	uint64Sort(keysUC)
 
-	// Reading in order, before making commits.
+	// Read in order, before making commits.
 	for _, k := range keysUC {
 		kv, err = tb.read(k)
 		if err != nil || kv.block == nil {
@@ -489,7 +490,7 @@ func TestCache(t *testing.T) {
 		}
 	}
 	log.Printf("Table -- TestCache -- Commiting %d entries.", testSize)
-	// Random commits
+	// Make random commits.
 	for len(keysC) < testSize {
 		index = (myRand.Intn(len(keysUC)))
 		myKey = keysUC[index]
@@ -500,13 +501,13 @@ func TestCache(t *testing.T) {
 		keysC = append(keysC, myKey)
 		keysUC = append(keysUC[:index], keysUC[index+1:]...)
 	}
-	// After committing testSize entries, we should be able to add exactly testSize
-	// entries again. Note that even though we committed by random, we accessed
-	// entries from the sorted keysUC list. So the evicted ones will also be sorted.
+	// After committing testSize entries, table should be able to accept exactly testSize
+	// entries again. Note that even though commits were by random, they were accessed
+	// from the sorted keysUC list. So the evicted ones will also be sorted.
 	log.Printf("Table -- TestCache -- Adding %d new entries to the full table.", testSize)
 	uint64Sort(keysC)
 	for i := 0; i < testSize; i++ {
-		// Generating a new random key.
+		// Generate a new random key.
 		for {
 			myKey = GetRandomKey()
 			if entry, _ := tb.getEntry(myKey); entry == nil {
@@ -521,8 +522,8 @@ func TestCache(t *testing.T) {
 			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
 		}
 		// Checks to see the correct item is evicted.
-		// Since items were read based on keysC sorted list, evicted items
-		// should follow the same order
+		// Since items were read based on keysC sorted list, evicted
+		// items should follow the same order.
 		myKey = keysC[i]
 		tmpEntry, err = tb.getEntry(myKey)
 		if err == nil || tmpEntry != nil {
@@ -536,14 +537,14 @@ func TestCache(t *testing.T) {
 
 		}
 	}
-	// Making sure all committed entries are evicted.
+	// Make sure all committed entries are evicted.
 	for _, k := range keysC {
 		tmpEntry, err = tb.getEntry(k)
 		if err == nil || tmpEntry != nil {
 			t.Fatal("Committed entry should have been evicted.")
 		}
 	}
-	// Making sure all old and new uncommitted entries are accessible
+	// Make sure all old and new uncommitted entries are accessible.
 	if len(keysUC) != tableSize {
 		t.Fatalf("Table should be full again at size %d. However, the new size is %d.", tableSize, len(keysUC))
 	}
