@@ -113,8 +113,7 @@ func (tb *tableManager) getEntry(keyIn uint64) (*tableEntry, error) {
 func (tb *tableManager) read(keyIn uint64) (*keyVal, error) {
 	entry, err := tb.getEntry(keyIn)
 	if err != nil {
-		log.Println("Could not obtain entry.")
-		return nil, errors.New("Could not obtain entry.")
+		return nil, errors.New("Could not obtain entry. -> " + err.Error())
 	}
 	tb.updateLRUCacheHead(entry)
 	return entry.kv, nil
@@ -133,7 +132,7 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 			// Table is full, pick a cache victim.
 			err := tb.evict()
 			if err != nil {
-				return errors.New("Table is full and needs to be flushed.")
+				return errors.New("Could not evict. -> " + err.Error())
 			}
 		}
 		entry = new(tableEntry)
@@ -163,17 +162,17 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 func (tb *tableManager) markRemove(keyIn uint64) error {
 	var err error
 	var entry *tableEntry
-	entry, err = tb.getEntry(keyIn)
-	if err != nil {
-		log.Println("Could not obtain entry.")
-		return errors.New("Could not obtain entry.")
-	}
 	err = tb.write(keyIn, nil)
 	if err != nil {
-		log.Println("Could not write nil to entry for removal.")
-		return errors.New("Marking for removal failed.")
+		log.Println("Could not write nil to entry for removal. -> " + err.Error())
+		return errors.New("Could not write nil to entry for removal. -> " + err.Error())
 	}
-	entry.kv.flags = flagDirty | flagRemove
+	entry, err = tb.getEntry(keyIn)
+	if err != nil {
+		log.Println("Could not obtain entry. -> " + err.Error())
+		return errors.New("Could not obtain entry. -> " + err.Error())
+	}
+	entry.kv.flags = entry.kv.flags | flagRemove
 	return nil
 }
 
@@ -228,6 +227,7 @@ func (tb *tableManager) commitKey(keyIn uint64) error {
 // Removes item from LRU list.
 func (tb *tableManager) removeFromLRUCache(entry *tableEntry) error {
 	if entry == nil || entry == tb.lruHead || entry == tb.lruTail {
+		log.Println("Table entry not valid")
 		return errors.New("Table entry not valid")
 	}
 	if entry.lruNext != nil && entry.lruPrev != nil {
@@ -242,6 +242,7 @@ func (tb *tableManager) removeFromLRUCache(entry *tableEntry) error {
 // Moves an entry to the head of LRU list. e.g. upon recent read or write.
 func (tb *tableManager) updateLRUCacheHead(entry *tableEntry) error {
 	if entry == nil || entry == tb.lruHead || entry == tb.lruTail {
+		log.Println("Table entry not valid")
 		return errors.New("Table entry not valid")
 	}
 	// First removes it from LRU list if exists.
@@ -289,6 +290,7 @@ func (tb *tableManager) evict() error {
 		}
 	}
 	if dirtyFound == false {
+		log.Println("No victim found, maybe need a flush.")
 		return errors.New("No victim found, maybe need a flush.")
 	}
 	tb.remove(victim.kv.key)

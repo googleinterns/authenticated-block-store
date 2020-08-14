@@ -120,6 +120,7 @@ type logManager struct {
 func newLogManager() (*logManager, error) {
 	var lm *logManager = new(logManager)
 	if lm == nil {
+		log.Println("Could not create the LogManager")
 		return nil, errors.New("Could not create the LogManager")
 	}
 	lm.namePrefix = defaultPrefix
@@ -159,6 +160,7 @@ func encryptBlock(dstBlock, srcBlock *Block) error {
 // TODO currently it just copies and lacks decryption.
 func decryptBlock(dstBlock, srcBlock *Block) error {
 	if srcBlock == nil || dstBlock == nil || len(srcBlock) != len(dstBlock) {
+		log.Println("Block decryption fail.")
 		return errors.New("Block decryption fail.")
 	}
 	for i, v := range srcBlock {
@@ -172,6 +174,7 @@ func decryptBlock(dstBlock, srcBlock *Block) error {
 // overwrites the dstHash with the newly created hash.
 func hashData(dstHash, srcBytes []byte) error {
 	if srcBytes == nil || dstHash == nil || len(dstHash) != hashLength {
+		log.Println("Hashing fail.")
 		return errors.New("Hashing fail.")
 	}
 
@@ -180,6 +183,7 @@ func hashData(dstHash, srcBytes []byte) error {
 	s := h.Sum(nil)
 
 	if len(s) != hashLength {
+		log.Println("Hash length fail.")
 		return errors.New("Hash length fail.")
 	}
 
@@ -194,6 +198,7 @@ func hashData(dstHash, srcBytes []byte) error {
 // TODO right now it lacks encryption.
 func signMerkleRoot(dstHash, srcHash []byte) error {
 	if srcHash == nil || dstHash == nil || len(srcHash) != hashLength || len(dstHash) != hashLength {
+		log.Println("Sign merkle fail.")
 		return errors.New("Sign merkle fail.")
 	}
 	for i, b := range srcHash {
@@ -213,11 +218,13 @@ func generateIndex(kvList []*keyVal) ([]byte, error) {
 
 	dst = make([]byte, 8*len(kvList), 8*len(kvList))
 	if dst == nil {
+		log.Println("Could not allcoate memory for index table.")
 		return nil, errors.New("Could not allcoate memory for index table.")
 	}
 
 	for i, kv := range kvList {
 		if kv.key < maxKey {
+			log.Println("Input KeyVals are not sorted.")
 			return nil, errors.New("Input KeyVals are not sorted.")
 		}
 		maxKey = kv.key
@@ -237,18 +244,21 @@ func decomposeIndex(src []byte) ([]*keyVal, error) {
 	var tmp uint64
 
 	if src == nil || len(src)%8 != 0 {
+		log.Println("Error in input.")
 		return nil, errors.New("Error in input.")
 	}
 
 	count = len(src) / 8
 	dst = make([]*keyVal, count)
 	if dst == nil {
+		log.Println("Could not allocate memory.")
 		return nil, errors.New("Could not allocate memory.")
 	}
 
 	for i := 0; i < count; i++ {
 		kv = new(keyVal)
 		if kv == nil {
+			log.Println("Could not allocate memory.")
 			return nil, errors.New("Could not allocate memory.")
 		}
 		tmp = binary.LittleEndian.Uint64(src[i*8 : i*8+8])
@@ -318,16 +328,16 @@ func updateMerkleTree(hashList [][]byte) error {
 	for i := firstLeafIndex - 1; i > 0; i-- {
 		err = hashData(hashList[i], append(hashList[2*i], hashList[2*i+1]...))
 		if err != nil {
-			log.Println("Failure in calculating hash.")
-			return errors.New("Failure in calculating hash.")
+			log.Println("Failure in calculating hash. -> " + err.Error())
+			return errors.New("Failure in calculating hash. -> " + err.Error())
 		}
 	}
 
 	// Finally sign the merkle root.
 	err = signMerkleRoot(hashList[0], hashList[1])
 	if err != nil {
-		log.Println("Failure in signing merkle root.")
-		return errors.New("Failure in signing merkle root.")
+		log.Println("Failure in signing merkle root. -> " + err.Error())
+		return errors.New("Failure in signing merkle root. -> " + err.Error())
 	}
 	return nil
 }
@@ -523,14 +533,14 @@ func isKeyInFile(targetKey uint64, lh *logHeader) (*keyVal, int, error) {
 	tmpData = make([]byte, 8*lh.numOfKeys)
 	_, err = lh.file.Seek(getIndexOffset(lh), 0)
 	if err != nil {
-		log.Println("Failure in seek.")
-		return nil, 0, errors.New("Failure in seek.")
+		log.Println("Failure in seek. -> " + err.Error())
+		return nil, 0, errors.New("Failure in seek. -> " + err.Error())
 	}
 
 	bytesRead, err = lh.file.Read(tmpData)
 	if err != nil || bytesRead != len(tmpData) {
-		log.Println("Failure in reading index table.")
-		return nil, 0, errors.New("Failure in reading index table.")
+		log.Println("Failure in reading index table. -> " + err.Error())
+		return nil, 0, errors.New("Failure in reading index table. -> " + err.Error())
 	}
 
 	// Search the table using binary search, mask/ignore flags.
@@ -603,8 +613,8 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	}
 	newHeader.file, err = os.Create(lm.generateName())
 	if err != nil {
-		log.Println("Could not create log file.")
-		return errors.New("Could not create log file.")
+		log.Println("Could not create log file. -> " + err.Error())
+		return errors.New("Could not create log file. -> " + err.Error())
 	}
 	lm.nextFD++
 	// The file does not get closed. It is kept open to access it for reads
@@ -613,31 +623,34 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	// Generate the header, key index table, and merkle tree in memory.
 	headerBytes, err = generateHeader(newHeader)
 	if err != nil {
-		return errors.New("Could not generate header.")
+		log.Println("Could not generate header. -> " + err.Error())
+		return errors.New("Could not generate header. -> " + err.Error())
 	}
 
 	indexBytes, err = generateIndex(kvList)
 	if err != nil {
-		return errors.New("Could not generate index table.")
+		log.Println("Could not generate index table. -> " + err.Error())
+		return errors.New("Could not generate index table. -> " + err.Error())
 	}
 
 	hashList, err = generateEmptyTree(len(kvList))
 	firstLeafIndex = getFirstLeafIndex(hashList)
 	if err != nil {
-		return errors.New("Could not generate empty tree.")
+		log.Println("Could not generate empty tree. -> " + err.Error())
+		return errors.New("Could not generate empty tree. -> " + err.Error())
 	}
 
 	// Skip header, index, tree parts in the file to be filled later.
 	emptyBytes = int64(len(headerBytes) + len(indexBytes) + len(hashList)*hashLength)
 	err = newHeader.file.Truncate(emptyBytes)
 	if err != nil {
-		log.Println("Could not truncate file to size.")
-		return errors.New("Could not truncate file to size.")
+		log.Println("Could not truncate file to size. -> " + err.Error())
+		return errors.New("Could not truncate file to size. -> " + err.Error())
 	}
 	_, err = newHeader.file.Seek(emptyBytes, 0)
 	if err != nil {
-		log.Println("Failure in seek.")
-		return errors.New("Failure in seek.")
+		log.Println("Failure in seek. -> " + err.Error())
+		return errors.New("Failure in seek. -> " + err.Error())
 	}
 
 	// Write data blocks, which consist bulk of the log file.
@@ -647,18 +660,18 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	for i, kv := range kvList {
 		err = encryptBlock(encryptedBlock, kv.block)
 		if err != nil {
-			log.Println("Failure in encryption.")
-			return errors.New("Failure in encryption.")
+			log.Println("Failure in encryption. -> " + err.Error())
+			return errors.New("Failure in encryption. -> " + err.Error())
 		}
 		err = hashData(hashList[firstLeafIndex+i], encryptedBlock[:])
 		if err != nil {
-			log.Println("Failure in calculating hash.")
-			return errors.New("Failure in calculating hash.")
+			log.Println("Failure in calculating hash. -> " + err.Error())
+			return errors.New("Failure in calculating hash. -> " + err.Error())
 		}
 		bytesWritten, err = newHeader.file.Write(encryptedBlock[:])
 		if err != nil || bytesWritten != len(encryptedBlock) {
-			log.Println("Could not write the encrypted block.")
-			return errors.New("Could not write the encrypted block.")
+			log.Println("Could not write the encrypted block. -> " + err.Error())
+			return errors.New("Could not write the encrypted block. -> " + err.Error())
 		}
 
 	}
@@ -667,45 +680,45 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	// leaves up to the root.
 	err = updateMerkleTree(hashList)
 	if err != nil {
-		log.Println("Failure in updating merkle tree.")
-		return errors.New("Failure in updating merkle tree.")
+		log.Println("Failure in updating merkle tree. -> " + err.Error())
+		return errors.New("Failure in updating merkle tree. -> " + err.Error())
 	}
 
 	// Update the merkle root of this logHeader with the calculated root.
 	newHeader.merkleRoot = make([]byte, hashLength)
 	copiedBytes = copy(newHeader.merkleRoot, hashList[1])
 	if copiedBytes != hashLength {
-		log.Println("Could not save the merkle root.")
-		return errors.New("Could not save the merkle root.")
+		log.Println("Could not save the merkle root. -> ")
+		return errors.New("Could not save the merkle root. -> ")
 	}
 
 	// Write the correct header, index table, and updated tree in the log file.
 	_, err = newHeader.file.Seek(0, 0)
 	if err != nil {
-		log.Println("Failure in rewind.")
-		return errors.New("Failure in rewind.")
+		log.Println("Failure in rewind. -> " + err.Error())
+		return errors.New("Failure in rewind. -> " + err.Error())
 	}
 
 	// Write header.
 	bytesWritten, err = newHeader.file.Write(headerBytes)
 	if err != nil || bytesWritten != len(headerBytes) {
-		log.Println("Could not write the header section.")
-		return errors.New("Could not write the header section.")
+		log.Println("Could not write the header section. -> " + err.Error())
+		return errors.New("Could not write the header section. -> " + err.Error())
 	}
 
 	// Write index table.
 	bytesWritten, err = newHeader.file.Write(indexBytes)
 	if err != nil || bytesWritten != len(indexBytes) {
-		log.Println("Could not write the index section.")
-		return errors.New("Could not write the index section.")
+		log.Println("Could not write the index section. -> " + err.Error())
+		return errors.New("Could not write the index section. -> " + err.Error())
 	}
 
 	// Write merkle tree.
 	for i := 0; i < len(hashList); i++ {
 		bytesWritten, err = newHeader.file.Write(hashList[i])
 		if err != nil || bytesWritten != len(hashList[i]) {
-			log.Println("Could not write the tree section.")
-			return errors.New("Could not write the tre section.")
+			log.Println("Could not write the tree section. -> " + err.Error())
+			return errors.New("Could not write the tre section. -> " + err.Error())
 		}
 	}
 
@@ -740,8 +753,8 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 	for lh = lm.headLog; lh != nil; lh = lh.nextLog {
 		kv, index, err = isKeyInFile(targetKey, lh)
 		if err != nil {
-			log.Println("Failure in checking file for key.")
-			return nil, errors.New("Failure in checking file for key.")
+			log.Println("Failure in checking file for key. -> " + err.Error())
+			return nil, errors.New("Failure in checking file for key. -> " + err.Error())
 		}
 		// The key is found.
 		if kv != nil {
