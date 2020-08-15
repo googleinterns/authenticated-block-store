@@ -143,28 +143,28 @@ func checkFileExists(name string) bool {
 	return true
 }
 
-// Function that encrypts a block.
-// TODO currently it just copies and lacks encryption.
-func encryptBlock(dstBlock, srcBlock *Block) error {
+// Function that encrypts a slice of data.
+// TODO currently it lacks encryption.
+func encryptData(dstBlock, srcBlock []byte) error {
 	if srcBlock == nil || dstBlock == nil || len(srcBlock) != len(dstBlock) {
 		log.Println("Block encryption fail.")
 		return errors.New("Block encryption fail.")
 	}
 	for i, v := range srcBlock {
-		dstBlock[i] = v
+		dstBlock[i] = 255 - v
 	}
 	return nil
 }
 
-// Function that decrypts a block.
-// TODO currently it just copies and lacks decryption.
-func decryptBlock(dstBlock, srcBlock *Block) error {
+// Function that decrypts a slice of data.
+// TODO currently it lacks decryption.
+func decryptData(dstBlock, srcBlock []byte) error {
 	if srcBlock == nil || dstBlock == nil || len(srcBlock) != len(dstBlock) {
 		log.Println("Block decryption fail.")
 		return errors.New("Block decryption fail.")
 	}
 	for i, v := range srcBlock {
-		dstBlock[i] = v
+		dstBlock[i] = 255 - v
 	}
 	return nil
 }
@@ -211,13 +211,16 @@ func signMerkleRoot(dstHash, srcHash []byte) error {
 // written in the log file (list of keys included in the log file).
 // The keyVals must be sorted by key. The flags will be concatenated to keys
 // from the left (1 byte flags | 7 byte key)
+// The result is encrypted for protection against modification.
 func generateIndex(kvList []*keyVal) ([]byte, error) {
-	var dst []byte
+	var plain, encrypted []byte
 	var tmp uint64
 	var maxKey uint64 = 0
+	var err error
 
-	dst = make([]byte, 8*len(kvList), 8*len(kvList))
-	if dst == nil {
+	plain = make([]byte, 8*len(kvList), 8*len(kvList))
+	encrypted = make([]byte, 8*len(kvList), 8*len(kvList))
+	if plain == nil || encrypted == nil {
 		log.Println("Could not allcoate memory for index table.")
 		return nil, errors.New("Could not allcoate memory for index table.")
 	}
@@ -229,26 +232,45 @@ func generateIndex(kvList []*keyVal) ([]byte, error) {
 		}
 		maxKey = kv.key
 		tmp = encodeKeyFlags(kv.key, kv.flags)
-		binary.LittleEndian.PutUint64(dst[i*8:i*8+8], tmp)
+		binary.LittleEndian.PutUint64(plain[i*8:i*8+8], tmp)
 	}
-	return dst, nil
+
+	err = encryptData(encrypted, plain)
+	if err != nil {
+		log.Println("Failure in encryption. -> " + err.Error())
+		return nil, errors.New("Failure in encryption. -> " + err.Error())
+	}
+	return encrypted, nil
 }
 
 // Counter part of generateIndex(), takes the index table bytes from the
 // log file, and interprets them as a list of uint64 (key, flags) tuples.
 // Extracts a list of keyVals from them (ignores data blocks).
-func decomposeIndex(src []byte) ([]*keyVal, error) {
+func decomposeIndex(srcEncrypted []byte) ([]*keyVal, error) {
 	var count int
 	var dst []*keyVal
 	var kv *keyVal
 	var tmp uint64
+	var srcPlain []byte
+	var err error
 
-	if src == nil || len(src)%8 != 0 {
+	if srcEncrypted == nil || len(srcEncrypted)%8 != 0 {
 		log.Println("Error in input.")
 		return nil, errors.New("Error in input.")
 	}
 
-	count = len(src) / 8
+	srcPlain = make([]byte, len(srcEncrypted))
+	if srcPlain == nil {
+		log.Println("Could not allocate memory.")
+		return nil, errors.New("Could not allocate memory.")
+	}
+	err = decryptData(srcPlain, srcEncrypted)
+	if err != nil {
+		log.Println("Failure in decryption. -> " + err.Error())
+		return nil, errors.New("Failure in decryption. -> " + err.Error())
+	}
+
+	count = len(srcPlain) / 8
 	dst = make([]*keyVal, count)
 	if dst == nil {
 		log.Println("Could not allocate memory.")
@@ -261,7 +283,7 @@ func decomposeIndex(src []byte) ([]*keyVal, error) {
 			log.Println("Could not allocate memory.")
 			return nil, errors.New("Could not allocate memory.")
 		}
-		tmp = binary.LittleEndian.Uint64(src[i*8 : i*8+8])
+		tmp = binary.LittleEndian.Uint64(srcPlain[i*8 : i*8+8])
 		kv.key, kv.flags = decodeKeyFlags(tmp)
 		dst[i] = kv
 	}
@@ -523,11 +545,12 @@ func isKeyInFile(targetKey uint64, lh *logHeader) (*keyVal, int, error) {
 	var kv *keyVal
 	var err error
 	var start, end, index int
-	var compactKey, myKey uint64
+	var myKey uint64
 	var flags byte
 
 	var tmpData []byte
 	var bytesRead int
+	var kvList []*keyVal
 
 	// Read the key index table to memory for fast search.
 	tmpData = make([]byte, 8*lh.numOfKeys)
@@ -543,15 +566,20 @@ func isKeyInFile(targetKey uint64, lh *logHeader) (*keyVal, int, error) {
 		return nil, 0, errors.New("Failure in reading index table. -> " + err.Error())
 	}
 
+	kvList, err = decomposeIndex(tmpData)
+	if err != nil {
+		log.Println("Could not decompose index table. -> " + err.Error())
+		return nil, 0, errors.New("Could not decompose index table. -> " + err.Error())
+	}
+
 	// Search the table using binary search, mask/ignore flags.
 	start = 0
 	end = lh.numOfKeys - 1
 
 	for start <= end {
 		index = start + (end-start)/2
-		compactKey = binary.LittleEndian.Uint64(tmpData[8*index : 8*index+8])
-		myKey, flags = decodeKeyFlags(compactKey)
-		if myKey == targetKey {
+		myKey, flags = kvList[index].key, kvList[index].flags
+		if kvList[index].key == targetKey {
 			kv = new(keyVal)
 			kv.key = myKey
 			kv.flags = flags
@@ -658,7 +686,7 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	// hash of encrypted blocks are stored in the merkle tree.
 	encryptedBlock = new(Block)
 	for i, kv := range kvList {
-		err = encryptBlock(encryptedBlock, kv.block)
+		err = encryptData(encryptedBlock[:], kv.block[:])
 		if err != nil {
 			log.Println("Failure in encryption. -> " + err.Error())
 			return errors.New("Failure in encryption. -> " + err.Error())
@@ -742,6 +770,7 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 	var index int
 	var kv *keyVal
 	var hashList [][]byte
+	var tmpBlock *Block
 
 	targetKey, ok = CleanKey(keyIn)
 	if !ok {
@@ -782,17 +811,30 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 	}
 
 	// Read the target block.
-	kv.block = readBlockFromFile(lh, index)
-	if kv.block == nil {
+	tmpBlock = readBlockFromFile(lh, index)
+	if tmpBlock == nil {
 		log.Println("Failure in reading block from file.")
 		return nil, errors.New("Failure in reading block from file.")
 	}
 
-	// Finally, validate the block in the tree.
-	ok = validateBlock(hashList, kv.block, index)
+	// Validate the block in the tree.
+	ok = validateBlock(hashList, tmpBlock, index)
 	if !ok {
 		log.Println("Could not validate the block in the merkle tree.")
 		return nil, errors.New("Could not validate the block in the merkle tree.")
+	}
+
+	// Finally decrypt the block.
+	kv.block = new(Block)
+	if kv.block == nil {
+		log.Println("Could not allocate memory.")
+		return nil, errors.New("Could not allocate memory.")
+	}
+
+	err = decryptData(kv.block[:], tmpBlock[:])
+	if err != nil {
+		log.Println("Failure in decryption. -> " + err.Error())
+		return nil, errors.New("Failure in decryption. -> " + err.Error())
 	}
 
 	return kv, nil

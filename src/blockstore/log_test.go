@@ -21,9 +21,10 @@ import (
 	"testing"
 )
 
-// Tests if the encryption and decryption of a block is correct.
+// Tests if the encryption and then decryption of a block gets the original.
 func TestEncryptDecrypt(t *testing.T) {
 	var b1, b2, b3 *Block
+	var err error
 
 	log.Println("Log -- TestEncryptDecrypt -- Testing with a random block.")
 
@@ -35,16 +36,15 @@ func TestEncryptDecrypt(t *testing.T) {
 		t.Fatal("Could not allocate block")
 	}
 
-	encryptBlock(b2, b1)
-	// Tests the dummy encryption, which is identical to source.
-	for i, v := range b1 {
-		if b2[i] != v {
-			t.Error("Encrypted block does not match to original.")
-			break
-		}
+	err = encryptData(b2[:], b1[:])
+	if err != nil {
+		t.Fatal("Failure in encryption.")
 	}
 
-	decryptBlock(b3, b2)
+	err = decryptData(b3[:], b2[:])
+	if err != nil {
+		t.Fatal("Failure in decryption.")
+	}
 	for i, v := range b1 {
 		if b3[i] != v {
 			t.Error("Decrypted block does not match to original.")
@@ -124,7 +124,7 @@ func TestIndex(t *testing.T) {
 	}
 	for i, _ := range inKV {
 		if (inKV[i].key != outKV[i].key) || (inKV[i].flags != outKV[i].flags) {
-			t.Error("Decomposed list does not match original list.")
+			t.Fatal("Decomposed list does not match original list.")
 		}
 	}
 
