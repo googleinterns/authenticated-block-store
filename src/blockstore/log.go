@@ -34,8 +34,8 @@ package blockstore
 // The merkle tree of the data blocks is stored to provide authenticity.
 // The key table is a sorted list of keys, and the offset of corresponding
 // data block.
-// The merkle tree is a binary tree with leaves being hash of data blocks, and
-// each parent node being hash of its children, all the way to the root.
+// The merkle tree is a binary tree with leaves being hash of data (block|key|flags),
+// and each parent node being hash of its children, all the way to the root.
 // Furthermore, we include a signed version of the merkle root for authenticity
 // Each hash is a []byte, and the merkle tree itself is list of hash, thus it is
 // defined as [][]byte.
@@ -496,19 +496,21 @@ func compareHash(a, b []byte) bool {
 
 }
 
-// A function that takes a merkle tree, a block and the index of the block,
-// and validates the authenticity of the block by calculating and verifying
+// A function that takes a merkle tree, a keyVal and the index of the keyVal,
+// and validates the authenticity of the keyVal by calculating and verifying
 // all the hashes from the leaf to the root.
-func validateBlock(hashList [][]byte, block *Block, index int) bool {
+func validateBlock(hashList [][]byte, kv *keyVal, index int) bool {
 	var tmpHash []byte
 	var err error
 	var firstLeafIndex int
 	var nodeID int
+	var toBeHashed []byte
 
 	tmpHash = make([]byte, hashLength)
 
-	// First calculate the hash of the block.
-	err = hashData(tmpHash, block[:])
+	// First calculate the hash of the keyVal (block|key|flags)
+	toBeHashed = packBlockKeyFlags(kv)
+	err = hashData(tmpHash, toBeHashed)
 	if err != nil {
 		return false
 	}
@@ -618,6 +620,7 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	var encryptedBlock *Block
 	var hashList [][]byte
 	var firstLeafIndex int
+	var toBeHashed []byte
 
 	// Fist assign a new header file.
 	newHeader = new(logHeader)
@@ -691,7 +694,8 @@ func (lm *logManager) write(kvList []*keyVal) error {
 			log.Println("Failure in encryption. -> " + err.Error())
 			return errors.New("Failure in encryption. -> " + err.Error())
 		}
-		err = hashData(hashList[firstLeafIndex+i], encryptedBlock[:])
+		toBeHashed = packBlockKeyFlags(kv)
+		err = hashData(hashList[firstLeafIndex+i], toBeHashed)
 		if err != nil {
 			log.Println("Failure in calculating hash. -> " + err.Error())
 			return errors.New("Failure in calculating hash. -> " + err.Error())
@@ -817,14 +821,7 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 		return nil, errors.New("Failure in reading block from file.")
 	}
 
-	// Validate the block in the tree.
-	ok = validateBlock(hashList, tmpBlock, index)
-	if !ok {
-		log.Println("Could not validate the block in the merkle tree.")
-		return nil, errors.New("Could not validate the block in the merkle tree.")
-	}
-
-	// Finally decrypt the block.
+	// Decrypt the block.
 	kv.block = new(Block)
 	if kv.block == nil {
 		log.Println("Could not allocate memory.")
@@ -835,6 +832,13 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 	if err != nil {
 		log.Println("Failure in decryption. -> " + err.Error())
 		return nil, errors.New("Failure in decryption. -> " + err.Error())
+	}
+
+	// Validate the kv in the tree.
+	ok = validateBlock(hashList, kv, index)
+	if !ok {
+		log.Println("Could not validate the keyVal in the merkle tree.")
+		return nil, errors.New("Could not validate the keyVal in the merkle tree.")
 	}
 
 	return kv, nil

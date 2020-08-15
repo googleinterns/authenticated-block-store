@@ -19,6 +19,7 @@ package blockstore
 // This file implements key/value primitives.
 
 import (
+	"encoding/binary"
 	"math/rand"
 	"sort"
 	"time"
@@ -116,4 +117,14 @@ func randomGen() *rand.Rand {
 	seed := rand.NewSource(time.Now().UnixNano())
 	random := rand.New(seed)
 	return random
+}
+
+// Creates a byte slice from a keyVal, containing the block|key|flags.
+// This is used for hashing for verifying integrity.
+func packBlockKeyFlags(kv *keyVal) []byte {
+	dst := make([]byte, blockSize+8+1)
+	copy(dst[:], kv.block[:])
+	binary.LittleEndian.PutUint64(dst[blockSize:], kv.key)
+	dst[len(dst)-1] = kv.flags
+	return dst
 }
