@@ -1052,3 +1052,323 @@ func (lm *logManager) open(path string, prefix string) error {
 
 	return nil
 }
+
+// merge() Merges multiple log files into a single one.
+// Keeps only the most updated version for each key.
+// Discards the keys that have been marked for removal.
+// A struct that helps merge() is defined to keep track of a keyVal,
+// the log file that it belongs to, and its index within that log file.
+// TODO Add ability to not necessarily all of them, but have some
+// flexibility. E.g. only merge last N log files.
+type mergeHelper struct {
+	kv         *keyVal
+	logIndex   int
+	tableIndex int
+}
+
+func (lm *logManager) merge() error {
+	var err error
+	var lh, newHeader *logHeader
+	var logList []*logHeader
+	var numOfFiles int
+	var kvList [][]*keyVal
+	var hashList [][][]byte
+	var tmpData []byte
+	var bytesRead int
+	var listIndex []int
+	var ok bool
+	var totalKeys int
+	var minSel int
+	var lastKey, minKey uint64
+	var headerBytes, indexBytes []byte
+	var bytesWritten, copiedBytes int
+	var emptyBytes int64
+	var encryptedBlock *Block
+	var outHashList [][]byte
+	var outKVList []*keyVal
+	var firstLeafIndex int
+	var toBeHashed []byte
+
+	// OutList contains the list of keyVals to be written, sorted by key.
+	// But it does not contain the data block. Instead, the struct holds
+	// a pointer to the correct the log file that contains the data block.
+	// This way we do not load all the data blocks in memory, and load
+	// them one by one from the log files instead.
+	var outList []*mergeHelper
+	var tmpHelper *mergeHelper
+
+	// Iterate over the chain. logList[0] is the head.
+	for lh = lm.headLog; lh != nil; lh = lh.nextLog {
+		logList = append(logList, lh)
+	}
+	numOfFiles = len(logList)
+	kvList = make([][]*keyVal, numOfFiles)
+	hashList = make([][][]byte, numOfFiles)
+
+	// Read the key index table to memory from each log file
+	for i := 0; i < numOfFiles; i++ {
+		tmpData = make([]byte, 8*logList[i].numOfKeys)
+		totalKeys = totalKeys + logList[i].numOfKeys
+
+		_, err = logList[i].file.Seek(getIndexOffset(logList[i]), 0)
+		if err != nil {
+			log.Println("Failure in seek. -> " + err.Error())
+			return errors.New("Failure in seek. -> " + err.Error())
+		}
+
+		bytesRead, err = logList[i].file.Read(tmpData)
+		if err != nil || bytesRead != len(tmpData) {
+			log.Println("Failure in reading index table. -> " + err.Error())
+			return errors.New("Failure in reading index table. -> " + err.Error())
+		}
+
+		kvList[i], err = decomposeIndex(tmpData)
+		if err != nil {
+			log.Println("Could not decompose index table. -> " + err.Error())
+			return errors.New("Could not decompose index table. -> " + err.Error())
+		}
+
+		// First read the merkle tree
+		hashList[i] = readTreeFromFile(logList[i])
+		if hashList[i] == nil {
+			log.Println("Failure in reading tree from file.")
+			return errors.New("Failure in reading tree from file.")
+		}
+
+		// Check the merkle root.
+		ok = validateMerkleRoot(logList[i], hashList[i])
+		if !ok {
+			log.Println("Could not validate the merkle root.")
+			return errors.New("Could not validate the merkle root.")
+
+		}
+	}
+
+	listIndex = make([]int, numOfFiles)
+
+	// Get a sorted struct of mergeHelper.
+	// This allows to iterate over all of them, read the data block from correct log file,
+	// decrypt and authenticate the block, and write it directly to log file.
+	// The datablocks, key, flags, and so HASH of leaves won't change. (right?)
+
+	lastKey = maxKey + 1
+	for i := 0; i < totalKeys; i++ {
+		// First, select the minimum key and file.
+		// Priority is with newer files.
+		minKey = maxKey + 1
+		for j := 0; j < numOfFiles; j++ {
+			// Check to see if there is anything left from this file.
+			if listIndex[j] >= len(kvList[j]) {
+
+				continue
+			}
+			// Note that the comparison should be > and not >=
+			// so an older file is not picked in case of a tie.
+			if minKey > kvList[j][listIndex[j]].key {
+				minKey = kvList[j][listIndex[j]].key
+				minSel = j
+			}
+		}
+
+		if minKey > lastKey || lastKey == maxKey+1 {
+			lastKey = minKey
+
+			tmpHelper = new(mergeHelper)
+			tmpHelper.kv = kvList[minSel][listIndex[minSel]]
+			tmpHelper.logIndex = minSel
+			tmpHelper.tableIndex = listIndex[minSel]
+			// We onlu need to write this item if it is not marked as removed.
+			if tmpHelper.kv.flags&flagRemove != flagRemove {
+				outList = append(outList, tmpHelper)
+			}
+		} else if minKey == lastKey {
+			// Similar key, but with older data. Skip.
+		} else {
+			// Should never happen!
+			return errors.New("Failure during merging.")
+		}
+		listIndex[minSel]++
+	}
+
+	// Fist assign a new header file.
+	newHeader = new(logHeader)
+	if newHeader == nil {
+		log.Println("Could not allocate header.")
+		return errors.New("Could not allocate header.")
+	}
+	newHeader.headerVersion = defaultHeaderVersion
+	newHeader.numOfKeys = len(outList)
+
+	// Explicitly breaking the chain as we are merging all log files.
+	// TODO if not all log files are merged, this should link to the rest.
+	newHeader.nextRoot = make([]byte, hashLength, hashLength)
+
+	// The new log is created and written, but the head pointer will be
+	// updated only after completion of the new file to prevent
+	// corruption of the head.
+
+	// Make sure a NEW file is created.
+	for checkFileExists(lm.generateName()) {
+		lm.nextFD++
+	}
+	newHeader.file, err = os.Create(lm.generateName())
+	if err != nil {
+		log.Println("Could not create log file. -> " + err.Error())
+		return errors.New("Could not create log file. -> " + err.Error())
+	}
+	lm.nextFD++
+	// The file does not get closed. It is kept open to access it for reads
+	// and other methods. It only gets created, written, and synced.
+
+	// Generate the primitive header. The merkle root will be generated later
+	// and the header will be updated.
+	headerBytes, err = generateHeader(newHeader)
+	if err != nil {
+		log.Println("Could not generate header. -> " + err.Error())
+		return errors.New("Could not generate header. -> " + err.Error())
+	}
+
+	outKVList = make([]*keyVal, len(outList))
+	for j := 0; j < len(outList); j++ {
+		outKVList[j] = outList[j].kv
+	}
+	// Generate key index table, and merkle tree in memory.
+	indexBytes, err = generateIndex(outKVList)
+	if err != nil {
+		log.Println("Could not generate index table. -> " + err.Error())
+		return errors.New("Could not generate index table. -> " + err.Error())
+	}
+
+	outHashList, err = generateEmptyTree(len(outList))
+	firstLeafIndex = getFirstLeafIndex(outHashList)
+	if err != nil {
+		log.Println("Could not generate empty tree. -> " + err.Error())
+		return errors.New("Could not generate empty tree. -> " + err.Error())
+	}
+
+	// Skip header, index, tree parts in the file to be filled later.
+	emptyBytes = int64(len(headerBytes) + len(indexBytes) + len(outHashList)*hashLength)
+	err = newHeader.file.Truncate(emptyBytes)
+	if err != nil {
+		log.Println("Could not truncate file to size. -> " + err.Error())
+		return errors.New("Could not truncate file to size. -> " + err.Error())
+	}
+	_, err = newHeader.file.Seek(emptyBytes, 0)
+	if err != nil {
+		log.Println("Failure in seek. -> " + err.Error())
+		return errors.New("Failure in seek. -> " + err.Error())
+	}
+
+	// Write data blocks, which consist bulk of the log file.
+	// The encrypted version of data blocks are written, and the
+	// plain hash of blocks are stored in the merkle tree.
+
+	for i, item := range outList {
+
+		// Read the target block.
+		encryptedBlock = readBlockFromFile(logList[item.logIndex], item.tableIndex)
+		if encryptedBlock == nil {
+			log.Println("Failure in reading block from file.")
+			return errors.New("Failure in reading block from file.")
+		}
+
+		// Decrypt the block.
+		item.kv.block = new(Block)
+		if item.kv.block == nil {
+			log.Println("Could not allocate memory.")
+			return errors.New("Could not allocate memory.")
+		}
+
+		err = decryptData(item.kv.block[:], encryptedBlock[:])
+		if err != nil {
+			log.Println("Failure in decryption. -> " + err.Error())
+			return errors.New("Failure in decryption. -> " + err.Error())
+		}
+
+		// Validate the kv in the tree.
+		ok = validateBlock(hashList[item.logIndex], item.kv, item.tableIndex)
+		if !ok {
+			log.Println("Could not validate the keyVal in the merkle tree.")
+			return errors.New("Could not validate the keyVal in the merkle tree.")
+		}
+
+		toBeHashed = packBlockKeyFlags(item.kv)
+		err = hashData(outHashList[firstLeafIndex+i], toBeHashed)
+		if err != nil {
+			log.Println("Failure in calculating hash. -> " + err.Error())
+			return errors.New("Failure in calculating hash. -> " + err.Error())
+		}
+		bytesWritten, err = newHeader.file.Write(encryptedBlock[:])
+		if err != nil || bytesWritten != len(encryptedBlock) {
+			log.Println("Could not write the encrypted block. -> " + err.Error())
+			return errors.New("Could not write the encrypted block. -> " + err.Error())
+		}
+
+	}
+
+	// Populate the middle nodes of the merkle tree starting from the
+	// leaves up to the root.
+	err = updateMerkleTree(outHashList)
+	if err != nil {
+		log.Println("Failure in updating merkle tree. -> " + err.Error())
+		return errors.New("Failure in updating merkle tree. -> " + err.Error())
+	}
+
+	// Update the merkle root of this logHeader with the calculated root.
+	newHeader.merkleRoot = make([]byte, hashLength)
+	copiedBytes = copy(newHeader.merkleRoot, outHashList[1])
+	if copiedBytes != hashLength {
+		log.Println("Could not save the merkle root. -> ")
+		return errors.New("Could not save the merkle root. -> ")
+	}
+
+	// Update the headerBytes with correct merkleRoot.
+	headerBytes, err = generateHeader(newHeader)
+	if err != nil {
+		log.Println("Could not update header. -> " + err.Error())
+		return errors.New("Could not update header. -> " + err.Error())
+	}
+
+	// Write the correct header, index table, and updated tree in the log file.
+	_, err = newHeader.file.Seek(0, 0)
+	if err != nil {
+		log.Println("Failure in rewind. -> " + err.Error())
+		return errors.New("Failure in rewind. -> " + err.Error())
+	}
+
+	// Write header.
+	bytesWritten, err = newHeader.file.Write(headerBytes)
+	if err != nil || bytesWritten != len(headerBytes) {
+		log.Println("Could not write the header section. -> " + err.Error())
+		return errors.New("Could not write the header section. -> " + err.Error())
+	}
+
+	// Write index table.
+	bytesWritten, err = newHeader.file.Write(indexBytes)
+	if err != nil || bytesWritten != len(indexBytes) {
+		log.Println("Could not write the index section. -> " + err.Error())
+		return errors.New("Could not write the index section. -> " + err.Error())
+	}
+
+	// Write merkle tree.
+	for i := 0; i < len(outHashList); i++ {
+		bytesWritten, err = newHeader.file.Write(outHashList[i])
+		if err != nil || bytesWritten != len(outHashList[i]) {
+			log.Println("Could not write the tree section. -> " + err.Error())
+			return errors.New("Could not write the tre section. -> " + err.Error())
+		}
+	}
+
+	// Force flush the system buffer.
+	newHeader.file.Sync()
+
+	lm.headLog = newHeader
+
+	// Remove older files.
+	for _, lh := range logList {
+		lh.file.Close()
+		os.Remove(lh.file.Name())
+	}
+
+	return nil
+}

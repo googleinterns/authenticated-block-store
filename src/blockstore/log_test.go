@@ -476,3 +476,94 @@ func TestLogCloseOpen(t *testing.T) {
 	}
 
 }
+
+// Writes unique keyVals to multipe log files in chain, and then merges them all.
+// TODO test merge with overwrites and removals.
+func TestLogMergeSimple(t *testing.T) {
+	var lm *logManager
+	var inKV [][]*keyVal
+	var kv *keyVal
+	var myKey uint64
+	var sortedKeys [][]uint64
+	var myFlags byte
+	var err error
+	var testSize = 100
+
+	log.Printf("Log -- TestLogMergeSimple -- Testing %d random key,flags,blocks for each of %d log files.", testSize, maxLogFiles)
+
+	myMap := make(map[uint64]bool, testSize)
+	sortedKeys = make([][]uint64, maxLogFiles)
+	for j := 0; j < maxLogFiles; j++ {
+		sortedKeys[j] = make([]uint64, testSize)
+	}
+
+	for j := 0; j < maxLogFiles; j++ {
+		for i := 0; i < testSize; i++ {
+			// Generate a new random key.
+			for {
+				myKey = GetRandomKey()
+				if _, exist := myMap[myKey]; exist == false {
+					break
+				}
+			}
+			myMap[myKey] = true
+			sortedKeys[j][i] = myKey
+		}
+		uint64Sort(sortedKeys[j])
+	}
+
+	inKV = make([][]*keyVal, maxLogFiles)
+	for j := 0; j < maxLogFiles; j++ {
+		inKV[j] = make([]*keyVal, testSize)
+		for i := 0; i < testSize; i++ {
+			// Generate a pseudo random flags byte
+			myKey = sortedKeys[j][i]
+			myFlags = byte(i * int(myKey))
+			myFlags = myFlags & ^flagDirty & ^flagRemove
+			kv = new(keyVal)
+			kv.key = myKey
+			kv.flags = myFlags
+			kv.block = GetRandomBlock()
+
+			inKV[j][i] = kv
+		}
+	}
+
+	lm, err = newLogManager(dirTest, "mergeSimple")
+	if err != nil {
+		t.Fatal("Could not create LogManager.")
+
+	}
+
+	for j := 0; j < maxLogFiles; j++ {
+		err = lm.write(inKV[j])
+		if err != nil {
+			t.Fatal("Write failed.")
+		}
+	}
+
+	log.Println("Log -- TestLogMergeSimple -- Merging log files.")
+	lm.merge()
+	log.Println("Log -- TestLogMergeSimple -- Merging copmlete, testing keyVals.")
+
+	// Read each and every key from the file and compare them.
+	for j := 0; j < maxLogFiles; j++ {
+		for i := 0; i < testSize; i++ {
+			kv, err = lm.read(inKV[j][i].key)
+			if err != nil {
+				t.Fatal("Read error.")
+			}
+			if kv == nil || kv.block == nil {
+				t.Fatal("Written key not found or empty")
+			}
+			if kv.key != inKV[j][i].key || kv.flags != inKV[j][i].flags {
+				t.Fatal("Written key found, but does not match.")
+			}
+
+			if !compareByteSlice(kv.block[:], inKV[j][i].block[:]) {
+				t.Fatal("Written key found, but data block does not match.")
+			}
+		}
+	}
+
+}
