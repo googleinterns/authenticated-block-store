@@ -132,7 +132,6 @@ func TestIndex(t *testing.T) {
 
 // Writes keyVals to the log and then reads them.
 // Then tries reading nonexistent keys.
-// TODO first make it work for the headLog, then the chain.
 func TestLogWriteRead(t *testing.T) {
 	var lm *logManager
 	var inKV []*keyVal
@@ -219,7 +218,7 @@ func TestLogWriteRead(t *testing.T) {
 	}
 }
 
-// Writes keyVals to multipe log files in chain, and then reads them all.
+// Writes keyVals to multiple log files in chain, and then reads them all.
 func TestLogWriteChain(t *testing.T) {
 	var lm *logManager
 	var inKV [][]*keyVal
@@ -381,7 +380,7 @@ func TestLogExtractHeader(t *testing.T) {
 }
 
 // Tests opening of previously saved log files.
-// Writes keyVals to multipe log files in chain, and then closes the logManager.
+// Writes keyVals to multiple log files in chain, and then closes the logManager.
 // It then Opens them and reads previous key.
 func TestLogCloseOpen(t *testing.T) {
 	var lm *logManager
@@ -477,8 +476,8 @@ func TestLogCloseOpen(t *testing.T) {
 
 }
 
-// Writes unique keyVals to multipe log files in chain, and then merges them all.
-// TODO test merge with overwrites and removals.
+// Writes unique keyVals to multiple log files in chain, and then merges them all.
+// TODO test merge with key update/overwrites and removals.
 func TestLogMergeSimple(t *testing.T) {
 	var lm *logManager
 	var inKV [][]*keyVal

@@ -108,7 +108,6 @@ type logHeader struct {
 // Main logManager object, which holds a pointer to the head log file (if any)
 // It may have its own distinct name/path. It also includes an increasing
 // counter for adding new files.
-// TODO add path.
 type logManager struct {
 	headLog    *logHeader
 	namePath   string
@@ -420,7 +419,7 @@ func generateHeader(lh *logHeader) ([]byte, error) {
 	// Write the size of header itself.
 	binary.LittleEndian.PutUint64(res[8:16], uint64(headerSize))
 
-	// Write the size of indexTable.
+	// Write the size of index table.
 	binary.LittleEndian.PutUint64(res[16:24], uint64(lh.numOfKeys))
 
 	// Write merkle root and root of next log
@@ -669,7 +668,7 @@ func validateBlock(hashList [][]byte, kv *keyVal, index int) bool {
 // Function that takes a logHeader, checks the file for a target Key.
 // If the key is found, creates a keyVal entry and populates it with
 // the key and the flags. Returns the keyVal entry and the index of the key
-// within the indexTable. Returns nil if the key is not found.
+// within the index table. Returns nil if the key is not found.
 func isKeyInFile(targetKey uint64, lh *logHeader) (*keyVal, int, error) {
 	var kv *keyVal
 	var err error
@@ -1089,11 +1088,12 @@ func (lm *logManager) merge() error {
 	var firstLeafIndex int
 	var toBeHashed []byte
 
-	// OutList contains the list of keyVals to be written, sorted by key.
+	// outList contains the list of keyVals to be written, sorted by key.
 	// But it does not contain the data block. Instead, the struct holds
-	// a pointer to the correct the log file that contains the data block.
+	// a pointer to the correct log file that contains the data block.
 	// This way we do not load all the data blocks in memory, and load
 	// them one by one from the log files instead.
+	// TODO this can be improved by caching multiple blocks at a time.
 	var outList []*mergeHelper
 	var tmpHelper *mergeHelper
 
@@ -1149,11 +1149,12 @@ func (lm *logManager) merge() error {
 	// Get a sorted struct of mergeHelper.
 	// This allows to iterate over all of them, read the data block from correct log file,
 	// decrypt and authenticate the block, and write it directly to log file.
-	// The datablocks, key, flags, and so HASH of leaves won't change. (right?)
+	// TODO The data blocks, key, flags, and so HASH of leaves won't change
+	// and can be re-used.
 
 	lastKey = maxKey + 1
 	for i := 0; i < totalKeys; i++ {
-		// First, select the minimum key and file.
+		// First, select the minimum key and corresponding log file.
 		// Priority is with newer files.
 		minKey = maxKey + 1
 		for j := 0; j < numOfFiles; j++ {
@@ -1170,6 +1171,9 @@ func (lm *logManager) merge() error {
 			}
 		}
 
+		// The item is either new or old. If the key is similar to last one, it
+		// should be ignored since the most recent version has already been processed.
+		// If the item is new, it should be written if it is not marked for removal.
 		if minKey > lastKey || lastKey == maxKey+1 {
 			lastKey = minKey
 
@@ -1177,7 +1181,7 @@ func (lm *logManager) merge() error {
 			tmpHelper.kv = kvList[minSel][listIndex[minSel]]
 			tmpHelper.logIndex = minSel
 			tmpHelper.tableIndex = listIndex[minSel]
-			// We onlu need to write this item if it is not marked as removed.
+			// Only need to write this item if it is not marked as removed.
 			if tmpHelper.kv.flags&flagRemove != flagRemove {
 				outList = append(outList, tmpHelper)
 			}
@@ -1190,7 +1194,7 @@ func (lm *logManager) merge() error {
 		listIndex[minSel]++
 	}
 
-	// Fist assign a new header file.
+	// First assign a new header file.
 	newHeader = new(logHeader)
 	if newHeader == nil {
 		log.Println("Could not allocate header.")
@@ -1199,7 +1203,7 @@ func (lm *logManager) merge() error {
 	newHeader.headerVersion = defaultHeaderVersion
 	newHeader.numOfKeys = len(outList)
 
-	// Explicitly breaking the chain as we are merging all log files.
+	// Explicitly breaking the chain as all log files are merged.
 	// TODO if not all log files are merged, this should link to the rest.
 	newHeader.nextRoot = make([]byte, hashLength, hashLength)
 
