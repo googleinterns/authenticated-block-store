@@ -1021,7 +1021,8 @@ func (lm *logManager) open(path string, prefix string) error {
 		return errors.New("No log files found")
 	}
 
-	chainHead = headerList[0]
+	// Start from the last file. Chances are that is the most recent head.
+	chainHead = headerList[len(headerList)-1]
 	chainTail = chainHead
 
 	// Simply going over all the list, N times, to form the link.
