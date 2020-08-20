@@ -61,8 +61,8 @@ import (
 	"log"
 	"math"
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 )
 
 // The number of log files before a merge is called.
@@ -124,21 +124,21 @@ func newLogManager(path string, prefix string) (*logManager, error) {
 		log.Println("Could not create the LogManager")
 		return nil, errors.New("Could not create the LogManager")
 	}
-       path, prefix = cleanPathPrefix(path, prefix)
+	path, prefix = cleanPathPrefix(path, prefix)
 
-       lm.namePath = path
-       lm.namePrefix = prefix
+	lm.namePath = path
+	lm.namePrefix = prefix
 
 	lm.nextFD = 0
 
-       // Make sure the path exists or create it.
-       _ = os.Mkdir(path, 0755)
+	// Make sure the path exists or create it.
+	_ = os.Mkdir(path, 0755)
 
-       _, err = os.Stat(path)
-       if os.IsNotExist(err) {
-               log.Println("Could not create directory.")
-               return nil, errors.New("Could not create directory.")
-       }
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) {
+		log.Println("Could not create directory.")
+		return nil, errors.New("Could not create directory.")
+	}
 
 	// Create a random generator.
 	if myRand == nil {
@@ -151,19 +151,18 @@ func newLogManager(path string, prefix string) (*logManager, error) {
 // A helper function that makes sure the path and prefix are valid.
 // Returns default strings if they are not.
 func cleanPathPrefix(path string, prefix string) (string, string) {
-       if len(path) == 0 {
-               path = defaultPath
-       }
-       if !strings.HasSuffix(path, "/") {
-               path = path + "/"
-       }
-       if len(prefix) == 0 {
-               prefix = defaultPrefix
-       }
-       // TODO other sanity/validity checks on path/prefix.
-       return path, prefix
+	if len(path) == 0 {
+		path = defaultPath
+	}
+	if !strings.HasSuffix(path, "/") {
+		path = path + "/"
+	}
+	if len(prefix) == 0 {
+		prefix = defaultPrefix
+	}
+	// TODO other sanity/validity checks on path/prefix.
+	return path, prefix
 }
-
 
 // A helper function that checks whether a file exists.
 func checkFileExists(name string) bool {
