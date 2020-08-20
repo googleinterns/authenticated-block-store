@@ -48,11 +48,9 @@ func TestEncryptDecrypt(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failure in decryption.")
 	}
-	for i, v := range b1 {
-		if b3[i] != v {
-			t.Error("Decrypted block does not match to original.")
-			break
-		}
+
+	if !compareByteSlice(b1[:], b3[:]) {
+		t.Fatal("Decrypted block does not match to original.")
 	}
 
 }
@@ -69,10 +67,8 @@ func TestHash(t *testing.T) {
 	hashData(d, s)
 
 	log.Println("Log -- TestHash -- Hash result of ", s, " is ", d)
-	for i, v := range ref {
-		if d[i] != v {
-			t.Error("Hash does not match the reference.")
-		}
+	if !compareByteSlice(d[:], ref[:]) {
+		t.Fatal("Hash does not match the reference.")
 	}
 }
 
@@ -109,6 +105,7 @@ func TestIndex(t *testing.T) {
 		// Generate a pseudo random flags byte
 		myKey = sortedKeys[i]
 		myFlags = byte(i * int(myKey))
+		myFlags = myFlags & ^flagDirty & ^flagRemove
 		kv = new(keyVal)
 		kv.key = myKey
 		kv.flags = myFlags
@@ -168,6 +165,7 @@ func TestLogWriteRead(t *testing.T) {
 		// Generate a pseudo random flags byte
 		myKey = sortedKeys[i]
 		myFlags = byte(i * int(myKey))
+		myFlags = myFlags & ^flagDirty & ^flagRemove
 		kv = new(keyVal)
 		kv.key = myKey
 		kv.flags = myFlags
@@ -199,10 +197,8 @@ func TestLogWriteRead(t *testing.T) {
 			t.Fatal("Written key found, but does not match.")
 		}
 
-		for j, v := range inKV[i].block {
-			if kv.block[j] != v {
-				t.Fatal("Written key found, but data block does not match.")
-			}
+		if !compareByteSlice(kv.block[:], inKV[i].block[:]) {
+			t.Fatal("Written key found, but data block does not match.")
 		}
 	}
 

@@ -309,7 +309,9 @@ func generateHeader(lh *logHeader) ([]byte, error) {
 	// Write the size of indexTable.
 	binary.LittleEndian.PutUint64(res[16:24], uint64(lh.numOfKeys))
 
-	//TODO add merkle root and root of next log
+	// Write merkle root and root of next log
+	copy(res[24:24+hashLength], lh.merkleRoot)
+	copy(res[24+hashLength:24+2*hashLength], lh.nextRoot)
 
 	return res, nil
 }
@@ -345,10 +347,16 @@ func generateEmptyTree(items int) ([][]byte, error) {
 func updateMerkleTree(hashList [][]byte) error {
 	var err error
 	var firstLeafIndex int
+	var combinedHash []byte
+
+	combinedHash = make([]byte, 2*hashLength, 2*hashLength)
 
 	firstLeafIndex = getFirstLeafIndex(hashList)
 	for i := firstLeafIndex - 1; i > 0; i-- {
-		err = hashData(hashList[i], append(hashList[2*i], hashList[2*i+1]...))
+		copy(combinedHash[0:hashLength], hashList[2*i])
+		copy(combinedHash[hashLength:2*hashLength], hashList[2*i+1])
+		err = hashData(hashList[i], combinedHash)
+
 		if err != nil {
 			log.Println("Failure in calculating hash. -> " + err.Error())
 			return errors.New("Failure in calculating hash. -> " + err.Error())
@@ -368,6 +376,7 @@ func updateMerkleTree(hashList [][]byte) error {
 // corresponding log file, into memory.
 // TODO This can be improved by selectively reading only the branches
 // in the tree that are going to be needed for authenticating a block.
+// For each of the Node's parents up to the root, include both children.
 func readTreeFromFile(lh *logHeader) [][]byte {
 	var hashList [][]byte
 	var err error
@@ -462,13 +471,13 @@ func getTreeSize(items int) (int, int) {
 // and make sure it is authenticated.
 func validateMerkleRoot(lh *logHeader, hashList [][]byte) bool {
 	var tmpHash []byte
-	if !compareHash(lh.merkleRoot, hashList[1]) {
+	if !compareByteSlice(lh.merkleRoot, hashList[1]) {
 		return false
 	}
 
 	tmpHash = make([]byte, hashLength)
 	signMerkleRoot(tmpHash, hashList[1])
-	if !compareHash(tmpHash, hashList[0]) {
+	if !compareByteSlice(tmpHash, hashList[0]) {
 		return false
 	}
 
@@ -482,8 +491,8 @@ func getFirstLeafIndex(hashList [][]byte) int {
 	return len(hashList) / 2
 }
 
-// A helper function that compares two []byte of hashes for a match.
-func compareHash(a, b []byte) bool {
+// A helper function that compares two []byte of data for a match.
+func compareByteSlice(a, b []byte) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -500,13 +509,14 @@ func compareHash(a, b []byte) bool {
 // and validates the authenticity of the keyVal by calculating and verifying
 // all the hashes from the leaf to the root.
 func validateBlock(hashList [][]byte, kv *keyVal, index int) bool {
-	var tmpHash []byte
+	var tmpHash, combinedHash []byte
 	var err error
 	var firstLeafIndex int
 	var nodeID int
 	var toBeHashed []byte
 
-	tmpHash = make([]byte, hashLength)
+	tmpHash = make([]byte, hashLength, hashLength)
+	combinedHash = make([]byte, 2*hashLength, 2*hashLength)
 
 	// First calculate the hash of the keyVal (block|key|flags)
 	toBeHashed = packBlockKeyFlags(kv)
@@ -517,7 +527,7 @@ func validateBlock(hashList [][]byte, kv *keyVal, index int) bool {
 
 	// Compare with existing hash in the tree.
 	firstLeafIndex = getFirstLeafIndex(hashList)
-	if !compareHash(tmpHash, hashList[firstLeafIndex+index]) {
+	if !compareByteSlice(tmpHash, hashList[firstLeafIndex+index]) {
 		return false
 	}
 
@@ -525,13 +535,16 @@ func validateBlock(hashList [][]byte, kv *keyVal, index int) bool {
 	// In the case of binary tree, ID of the parent = ID of child / 2
 	for nodeID = index / 2; nodeID > 0; nodeID /= 2 {
 		// Calculating the hash of the node from its children.
-		err = hashData(tmpHash, append(hashList[2*nodeID], hashList[2*nodeID+1]...))
+		copy(combinedHash[0:hashLength], hashList[2*nodeID])
+		copy(combinedHash[hashLength:2*hashLength], hashList[2*nodeID+1])
+		err = hashData(tmpHash, combinedHash)
+
 		if err != nil {
 			return false
 		}
 
 		// Compare with existing hash in the tree
-		if !compareHash(tmpHash, hashList[nodeID]) {
+		if !compareByteSlice(tmpHash, hashList[nodeID]) {
 			return false
 		}
 	}
@@ -609,8 +622,6 @@ func (lm *logManager) generateName() string {
 // Writes a log file at the head.
 // The input is a slice of keyVals that MUST be sorted by key.
 // During write, the flags are appended to key (1 byte flags + 7 bytes key)
-// TODO make sure to take care of removals.
-// TODO make sure it moves the head in chain.
 func (lm *logManager) write(kvList []*keyVal) error {
 	var err error
 	var newHeader *logHeader
@@ -633,10 +644,13 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	if lm.headLog != nil {
 		newHeader.nextLog = lm.headLog
 		newHeader.nextRoot = lm.headLog.merkleRoot
+	} else {
+		newHeader.nextRoot = make([]byte, hashLength, hashLength)
+
 	}
 	// The new log is created and written, but the head pointer will be
-	// updated only after verification of the new file to prevent
-	// corruption of head.
+	// updated only after completion of the new file to prevent
+	// corruption of the head.
 
 	// Make sure a NEW file is created.
 	for checkFileExists(lm.generateName()) {
@@ -651,13 +665,16 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	// The file does not get closed. It is kept open to access it for reads
 	// and other methods. It only gets created, written, and synced.
 
-	// Generate the header, key index table, and merkle tree in memory.
+	// Generate the primitive header. The merkle root will be generated later
+	// and the header will be updated.
+
 	headerBytes, err = generateHeader(newHeader)
 	if err != nil {
 		log.Println("Could not generate header. -> " + err.Error())
 		return errors.New("Could not generate header. -> " + err.Error())
 	}
 
+	// Generate key index table, and merkle tree in memory.
 	indexBytes, err = generateIndex(kvList)
 	if err != nil {
 		log.Println("Could not generate index table. -> " + err.Error())
@@ -685,8 +702,8 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	}
 
 	// Write data blocks, which consist bulk of the log file.
-	// The encrypted version of data blocks are written, and so the
-	// hash of encrypted blocks are stored in the merkle tree.
+	// The encrypted version of data blocks are written, and the
+	// hash of plain blocks are stored in the merkle tree.
 	encryptedBlock = new(Block)
 	for i, kv := range kvList {
 		err = encryptData(encryptedBlock[:], kv.block[:])
@@ -722,6 +739,13 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	if copiedBytes != hashLength {
 		log.Println("Could not save the merkle root. -> ")
 		return errors.New("Could not save the merkle root. -> ")
+	}
+
+	// Update the headerBytes with correct merkleRoot.
+	headerBytes, err = generateHeader(newHeader)
+	if err != nil {
+		log.Println("Could not update header. -> " + err.Error())
+		return errors.New("Could not update header. -> " + err.Error())
 	}
 
 	// Write the correct header, index table, and updated tree in the log file.
@@ -806,7 +830,7 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 		return nil, errors.New("Failure in reading tree from file.")
 	}
 
-	// Check the merkle root first.
+	// Check the merkle root.
 	ok = validateMerkleRoot(lh, hashList)
 	if !ok {
 		log.Println("Could not validate the merkle root.")
