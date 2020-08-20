@@ -21,6 +21,9 @@ import (
 	"testing"
 )
 
+// Directory for test log files.
+const dirTest = "dir_test"
+
 // Tests if the encryption and then decryption of a block gets the original.
 func TestEncryptDecrypt(t *testing.T) {
 	var b1, b2, b3 *Block

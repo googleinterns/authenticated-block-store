@@ -18,7 +18,6 @@ package blockstore
 
 import (
 	"log"
-	"os"
 	"testing"
 )
 
@@ -135,13 +134,4 @@ func TestEncodeDecodeKeyFlags(t *testing.T) {
 		}
 	}
 
-}
-
-// The initializer for random generator for the test functions.
-func TestMain(m *testing.M) {
-	if myRand == nil {
-		myRand = randomGen()
-	}
-	stat := m.Run()
-	os.Exit(stat)
 }
