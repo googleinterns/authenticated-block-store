@@ -174,7 +174,8 @@ func TestLogWriteRead(t *testing.T) {
 		inKV[i] = kv
 	}
 
-	lm, err = newLogManager()
+       lm, err = newLogManager(dirTest, "writeRead")
+
 	if err != nil {
 		t.Fatal("Could not create LogManager.")
 

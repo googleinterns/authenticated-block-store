@@ -290,7 +290,6 @@ func (tb *tableManager) evict() error {
 		}
 	}
 	if dirtyFound == false {
-		log.Println("No victim found, maybe need a flush.")
 		return errors.New("No victim found, maybe need a flush.")
 	}
 	tb.remove(victim.kv.key)

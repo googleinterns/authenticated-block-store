@@ -61,6 +61,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 	"strconv"
 )
 
@@ -71,6 +72,7 @@ const maxLogFiles = 5
 const hashLength = 20
 
 // Used in file names, a digit will be injected in between.
+const defaultPath = "./dirLogs/"
 const defaultPrefix = "testFile"
 const defaultSuffix = ".log"
 
@@ -108,23 +110,35 @@ type logHeader struct {
 // TODO add path.
 type logManager struct {
 	headLog    *logHeader
+	namePath   string
 	namePrefix string
 	// A file descriptor number that increases, used in file names.
 	nextFD int
 }
 
 // Constructs a log manager and initialize the members.
-// TODO accept path/default name.
-// TODO verify the same path/prefix does not exist. instead, it should be able
-// to open an existing chain, and keep a handle to each file.
-func newLogManager() (*logManager, error) {
+func newLogManager(path string, prefix string) (*logManager, error) {
 	var lm *logManager = new(logManager)
+	var err error
 	if lm == nil {
 		log.Println("Could not create the LogManager")
 		return nil, errors.New("Could not create the LogManager")
 	}
-	lm.namePrefix = defaultPrefix
+       path, prefix = cleanPathPrefix(path, prefix)
+
+       lm.namePath = path
+       lm.namePrefix = prefix
+
 	lm.nextFD = 0
+
+       // Make sure the path exists or create it.
+       _ = os.Mkdir(path, 0755)
+
+       _, err = os.Stat(path)
+       if os.IsNotExist(err) {
+               log.Println("Could not create directory.")
+               return nil, errors.New("Could not create directory.")
+       }
 
 	// Create a random generator.
 	if myRand == nil {
@@ -133,6 +147,23 @@ func newLogManager() (*logManager, error) {
 
 	return lm, nil
 }
+
+// A helper function that makes sure the path and prefix are valid.
+// Returns default strings if they are not.
+func cleanPathPrefix(path string, prefix string) (string, string) {
+       if len(path) == 0 {
+               path = defaultPath
+       }
+       if !strings.HasSuffix(path, "/") {
+               path = path + "/"
+       }
+       if len(prefix) == 0 {
+               prefix = defaultPrefix
+       }
+       // TODO other sanity/validity checks on path/prefix.
+       return path, prefix
+}
+
 
 // A helper function that checks whether a file exists.
 func checkFileExists(name string) bool {
@@ -616,7 +647,7 @@ func isKeyInFile(targetKey uint64, lh *logHeader) (*keyVal, int, error) {
 
 // A helper function that generates a file name.
 func (lm *logManager) generateName() string {
-	return lm.namePrefix + strconv.Itoa(lm.nextFD) + defaultSuffix
+	return lm.namePath + lm.namePrefix + strconv.Itoa(lm.nextFD) + defaultSuffix
 }
 
 // Writes a log file at the head.
