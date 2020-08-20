@@ -58,6 +58,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"errors"
+	"io/ioutil"
 	"log"
 	"math"
 	"os"
@@ -162,6 +163,35 @@ func cleanPathPrefix(path string, prefix string) (string, string) {
 	}
 	// TODO other sanity/validity checks on path/prefix.
 	return path, prefix
+}
+
+// A function that checks for existing log files, and returns a list of them
+// without any specific order.
+func readFileHeaders(lm *logManager) ([]*logHeader, error) {
+	var list []*logHeader
+	var tmpHeader *logHeader
+	var files []os.FileInfo
+	var err error
+
+	files, err = ioutil.ReadDir(lm.namePath)
+	if err != nil {
+		log.Println("Could not stat files in path.")
+		return nil, errors.New("Could not stat files in path. -> " + err.Error())
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(f.Name(), lm.namePrefix) {
+			tmpHeader, err = extractHeader(lm.namePath + f.Name())
+			if err != nil {
+				log.Println("Error in reading file.")
+				return nil, errors.New("Error in reading file. ->" + err.Error())
+			}
+			if tmpHeader != nil {
+				list = append(list, tmpHeader)
+			}
+		}
+	}
+	return list, nil
 }
 
 // Function that reads a file and tries to extract a header out of the file.
@@ -951,4 +981,74 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 
 	return kv, nil
 
+}
+
+// Closes all the handles to the files of a logManager.
+// Starts from the head and moves down the chain
+// Overwrites the object's head pointer with nil
+func (lm *logManager) close() error {
+	var err error
+	var lh *logHeader
+	// Iterate over the chain
+	for lh = lm.headLog; lh != nil; lh = lh.nextLog {
+		err = lh.file.Close()
+		if err != nil {
+			log.Println("Failure in closing file. -> " + err.Error())
+			return errors.New("Failure in closing file. -> " + err.Error())
+		}
+	}
+	lm.headLog = nil
+	return nil
+}
+
+// Tries to open an existing chain of log files.
+func (lm *logManager) open(path string, prefix string) error {
+	var err error
+	var chainHead, chainTail *logHeader
+	var headerList []*logHeader
+	var tmpFD, maxFD int
+	var s string
+
+	lm.namePath, lm.namePrefix = cleanPathPrefix(path, prefix)
+
+	headerList, err = readFileHeaders(lm)
+
+	if err != nil {
+		log.Println("Error in finding log files.")
+		return errors.New("Error in finding finding log files. -> " + err.Error())
+	}
+	if headerList == nil {
+		log.Println("No log files found.")
+		return errors.New("No log files found")
+	}
+
+	chainHead = headerList[0]
+	chainTail = chainHead
+
+	// Simply going over all the list, N times, to form the link.
+	// Number of files N is expected to be small.
+	// Every loop adding [at least] one link to head or tail.
+	for i := 0; i < len(headerList); i++ {
+		for j := 0; j < len(headerList); j++ {
+			if compareByteSlice(headerList[j].nextRoot, chainHead.merkleRoot) == true {
+				headerList[j].nextLog = chainHead
+				chainHead = headerList[j]
+			} else if compareByteSlice(chainTail.nextRoot, headerList[j].merkleRoot) == true {
+				chainTail.nextLog = headerList[j]
+				chainTail = headerList[j]
+			}
+
+		}
+		// Updating the maximum FD number in file names.
+		s = headerList[i].file.Name()
+		tmpFD, _ = strconv.Atoi(s[len(lm.namePath+lm.namePrefix) : len(s)-4])
+		if tmpFD > maxFD {
+			maxFD = tmpFD
+		}
+	}
+
+	lm.nextFD = maxFD
+	lm.headLog = chainHead
+
+	return nil
 }
