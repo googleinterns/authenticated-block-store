@@ -164,6 +164,60 @@ func cleanPathPrefix(path string, prefix string) (string, string) {
 	return path, prefix
 }
 
+// Function that reads a file and tries to extract a header out of the file.
+// TODO skip non header files with no errors.
+func extractHeader(fullPath string) (*logHeader, error) {
+	var newHeader *logHeader
+	var err error
+	var file *os.File
+	var bytes []byte
+	var bytesRead int
+	var headerSize int = defaultHeaderSize
+
+	file, err = os.Open(fullPath)
+	if err != nil {
+		log.Println("Could not open file.")
+		return nil, errors.New("Could not open file. -> " + err.Error())
+	}
+
+	// Fist assign a new header file.
+	newHeader = new(logHeader)
+	if newHeader == nil {
+		log.Println("Could not allocate header.")
+		return nil, errors.New("Could not allocate header.")
+	}
+
+	bytes = make([]byte, headerSize, headerSize)
+	bytesRead, err = file.Read(bytes)
+
+	if err != nil || bytesRead < headerSize {
+		log.Println("Could not read header section.")
+		return nil, errors.New("Could not read header section.")
+	}
+
+	newHeader.headerVersion = int(binary.LittleEndian.Uint64(bytes[0:8]))
+	if newHeader.headerVersion > defaultHeaderVersion {
+		log.Println("Wrong header version.")
+		return nil, errors.New("Wrong header version.")
+
+	}
+	if int(binary.LittleEndian.Uint64(bytes[8:16])) != headerSize {
+		log.Println("Wrong header size.")
+		return nil, errors.New("Wrong header size.")
+	}
+	newHeader.numOfKeys = int(binary.LittleEndian.Uint64(bytes[16:24]))
+
+	newHeader.merkleRoot = make([]byte, hashLength, hashLength)
+	newHeader.nextRoot = make([]byte, hashLength, hashLength)
+
+	copy(newHeader.merkleRoot, bytes[24:24+hashLength])
+	copy(newHeader.nextRoot, bytes[24+hashLength:24+2*hashLength])
+
+	newHeader.file = file
+
+	return newHeader, nil
+}
+
 // A helper function that checks whether a file exists.
 func checkFileExists(name string) bool {
 	_, err := os.Stat(name)

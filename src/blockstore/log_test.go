@@ -304,3 +304,78 @@ func TestLogWriteChain(t *testing.T) {
 	}
 
 }
+
+// Function that tests extraction of header from a log file.
+// First writes a log file, then tries to extract its header and compare.
+func TestLogExtractHeader(t *testing.T) {
+	var lm *logManager
+	var lh *logHeader
+	var inKV []*keyVal
+	var kv *keyVal
+	var myKey uint64
+	var sortedKeys []uint64
+	var myFlags byte
+	var err error
+	var name string
+	var testSize = 100
+
+	log.Printf("Log -- TestLogExtractHeader -- Testing %d random key,flags,blocks.", testSize)
+
+	myMap := make(map[uint64]bool, testSize)
+	sortedKeys = make([]uint64, testSize)
+	for i := 0; i < testSize; i++ {
+		// Generate a new random key.
+		for {
+			myKey = GetRandomKey()
+			if _, exist := myMap[myKey]; exist == false {
+				break
+			}
+		}
+		myMap[myKey] = true
+		sortedKeys[i] = myKey
+	}
+	uint64Sort(sortedKeys)
+
+	inKV = make([]*keyVal, testSize)
+	for i := 0; i < testSize; i++ {
+		// Generate a pseudo random flags byte
+		myKey = sortedKeys[i]
+		myFlags = byte(i * int(myKey))
+		myFlags = myFlags & ^flagDirty & ^flagRemove
+		kv = new(keyVal)
+		kv.key = myKey
+		kv.flags = myFlags
+		kv.block = GetRandomBlock()
+
+		inKV[i] = kv
+
+	}
+
+	lm, err = newLogManager(dirTest, "extractHeader")
+	if err != nil {
+		t.Fatal("Could not create LogManager.")
+	}
+	// Make sure a NEW file is created.
+	for checkFileExists(lm.generateName()) {
+		lm.nextFD++
+	}
+	// This will be the full name of test file.
+	name = lm.generateName()
+
+	err = lm.write(inKV)
+	if err != nil {
+		t.Fatal("Write failed.")
+	}
+
+	lh, err = extractHeader(name)
+	if err != nil {
+		t.Fatal("Error in reading header.")
+	}
+
+	if lh == nil || lh.headerVersion != lm.headLog.headerVersion ||
+		lh.numOfKeys != lm.headLog.numOfKeys ||
+		!compareByteSlice(lh.merkleRoot, lm.headLog.merkleRoot) ||
+		!compareByteSlice(lh.nextRoot, lm.headLog.nextRoot) {
+		t.Error("Extracted info does not match.")
+	}
+}
