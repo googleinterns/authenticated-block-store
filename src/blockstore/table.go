@@ -119,15 +119,19 @@ func (tb *tableManager) read(keyIn uint64) (*keyVal, error) {
 	return entry.kv, nil
 }
 
-// Writes a (key, data block) pair in table.
-func (tb *tableManager) write(keyIn uint64, val *Block) error {
-	key, ok := CleanKey(keyIn)
+// Writes a keyVal in table.
+func (tb *tableManager) write(kv *keyVal) error {
+	var flags byte
+	key, ok := CleanKey(kv.key)
 	if !ok {
 		log.Println("Key out of range.")
 		return errors.New("Key out of range.")
 	}
+
+	flags = (kv.flags & ^flagRemove) | flagDirty
 	entry, err := tb.getEntry(key)
 	if err != nil {
+		//item does not exist.
 		if len(tb.data) >= tableSize {
 			// Table is full, pick a cache victim.
 			err := tb.evict()
@@ -141,13 +145,9 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 			return errors.New("Could not allocate table entry.")
 		}
 		entry.kv = new(keyVal)
-		if entry.kv == nil {
-			log.Println("Could not allocate keyVal.")
-			return errors.New("Could not allocate keyVal.")
-		}
 	}
-	entry.kv.block = val
-	entry.kv.flags = flagDirty
+	entry.kv.block = kv.block
+	entry.kv.flags = flags
 	entry.kv.key = key
 	tb.data[key] = entry
 
@@ -162,11 +162,17 @@ func (tb *tableManager) write(keyIn uint64, val *Block) error {
 func (tb *tableManager) markRemove(keyIn uint64) error {
 	var err error
 	var entry *tableEntry
-	err = tb.write(keyIn, nil)
+	var kv *keyVal
+
+	// First create an entry in the table.
+	kv = new(keyVal)
+	kv.key = keyIn
+	err = tb.write(kv)
 	if err != nil {
 		log.Println("Could not write nil to entry for removal. -> " + err.Error())
 		return errors.New("Could not write nil to entry for removal. -> " + err.Error())
 	}
+	// Then mark it as removed.
 	entry, err = tb.getEntry(keyIn)
 	if err != nil {
 		log.Println("Could not obtain entry. -> " + err.Error())

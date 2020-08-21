@@ -53,6 +53,7 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 	var myKey uint64
 	var writeBlock, readBlock []*Block
 	var kv *keyVal
+	var tmpKV keyVal
 	var err error
 	var tb *tableManager
 
@@ -76,7 +77,12 @@ func multiWriteRead(testSize int, t *testing.T) bool {
 
 		writeBlock[i] = GetRandomBlock()
 
-		err = tb.write(myKey, writeBlock[i])
+		tmpKV.key = myKey
+		// Generate a pseudo random flags byte
+		tmpKV.flags = byte(i * int(myKey))
+		tmpKV.block = writeBlock[i]
+
+		err = tb.write(&tmpKV)
 		if err != nil {
 			t.Error("Write failed: Error occured during write.")
 			return false
@@ -107,6 +113,7 @@ func TestDirtyList(t *testing.T) {
 	var myKey uint64
 	var sortedKeys []uint64
 	var dirtyList []*keyVal
+	var tmpKV keyVal
 	var tmpBlock *Block
 	var err error
 	var tb *tableManager
@@ -131,7 +138,12 @@ func TestDirtyList(t *testing.T) {
 			sortedKeys = append(sortedKeys, myKey)
 			tmpBlock = GetRandomBlock()
 
-			err = tb.write(myKey, tmpBlock)
+			tmpKV.key = myKey
+			// Generate a pseudo random flags byte
+			tmpKV.flags = byte(index * int(myKey))
+			tmpKV.block = tmpBlock
+
+			err = tb.write(&tmpKV)
 			if err != nil {
 				t.Fatal("Write failed: Error occured during write.")
 			}
@@ -172,6 +184,7 @@ func TestCommit(t *testing.T) {
 	var myKey uint64
 	var sortedKeys []uint64
 	var dirtyList []*keyVal
+	var tmpKV keyVal
 	var tmpBlock *Block
 	var err error
 	var tb *tableManager
@@ -194,7 +207,12 @@ func TestCommit(t *testing.T) {
 		sortedKeys = append(sortedKeys, myKey)
 		tmpBlock = GetRandomBlock()
 
-		err = tb.write(myKey, tmpBlock)
+		tmpKV.key = myKey
+		// Generate a pseudo random flags byte
+		tmpKV.flags = byte(i * int(myKey))
+		tmpKV.block = tmpBlock
+
+		err = tb.write(&tmpKV)
 		if err != nil {
 			t.Fatal("Write failed: Error occured during write.")
 		}
@@ -241,6 +259,7 @@ func TestCommit(t *testing.T) {
 func TestReWrite(t *testing.T) {
 	var myKey uint64
 	var kv *keyVal
+	var tmpKV keyVal
 	var writeBlock, readBlock *Block
 	var err error
 	var tb *tableManager
@@ -264,7 +283,11 @@ func TestReWrite(t *testing.T) {
 
 		for j := 1; j <= retries; j++ {
 			writeBlock = GetRandomBlock()
-			err = tb.write(myKey, writeBlock)
+			tmpKV.key = myKey
+			// Generate a pseudo random flags byte
+			tmpKV.flags = byte(i * int(myKey))
+			tmpKV.block = writeBlock
+			err = tb.write(&tmpKV)
 			if err != nil {
 				t.Fatalf("Entry #%d write #%d failed: Error occured during write.", i, j)
 			}
@@ -287,6 +310,7 @@ func TestReWrite(t *testing.T) {
 func TestMarkRemove(t *testing.T) {
 	var myKey uint64
 	var kv *keyVal
+	var tmpKV keyVal
 	var writeBlock, readBlock *Block
 	var err error
 	var tb *tableManager
@@ -309,7 +333,12 @@ func TestMarkRemove(t *testing.T) {
 		}
 		writeBlock = GetRandomBlock()
 
-		err = tb.write(myKey, writeBlock)
+		tmpKV.key = myKey
+		// Generate a pseudo random flags byte
+		tmpKV.flags = byte(i * int(myKey))
+		tmpKV.block = writeBlock
+
+		err = tb.write(&tmpKV)
 		if err != nil {
 			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
 		}
@@ -377,6 +406,7 @@ func TestRemove(t *testing.T) {
 	var tmpEntry *tableEntry
 	var testSize = tableSize
 	var retries = 8
+	var tmpKV keyVal
 
 	tb, err = newTableManager()
 	if err != nil {
@@ -399,7 +429,12 @@ func TestRemove(t *testing.T) {
 
 			writeBlock = GetRandomBlock()
 
-			err = tb.write(myKey, writeBlock)
+			tmpKV.key = myKey
+			// Generate a pseudo random flags byte
+			tmpKV.flags = byte(i * int(myKey))
+			tmpKV.block = writeBlock
+
+			err = tb.write(&tmpKV)
 			if err != nil {
 				t.Fatal("Write failed: Error occured during write.")
 			}
@@ -413,7 +448,13 @@ func TestRemove(t *testing.T) {
 			}
 		}
 		writeBlock = GetRandomBlock()
-		err = tb.write(myKey, writeBlock)
+
+		tmpKV.key = myKey
+		// Generate a pseudo random flags byte
+		tmpKV.flags = byte(try * int(myKey))
+		tmpKV.block = writeBlock
+
+		err = tb.write(&tmpKV)
 		if err == nil {
 			t.Fatal("Write succeeded unexpectedly. The table should have been full.")
 		}
@@ -455,6 +496,8 @@ func TestCache(t *testing.T) {
 	var testSize = tableSize / 3
 	var tmpEntry *tableEntry
 	var index int
+	var tmpKV keyVal
+
 	myRand := randomGen()
 
 	tb, err = newTableManager()
@@ -474,7 +517,12 @@ func TestCache(t *testing.T) {
 		keysUC = append(keysUC, myKey)
 		writeBlock = GetRandomBlock()
 
-		err = tb.write(myKey, writeBlock)
+		tmpKV.key = myKey
+		// Generate a pseudo random flags byte
+		tmpKV.flags = byte(i * int(myKey))
+		tmpKV.block = writeBlock
+
+		err = tb.write(&tmpKV)
 		if err != nil {
 			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
 		}
@@ -517,7 +565,12 @@ func TestCache(t *testing.T) {
 		keysUC = append(keysUC, myKey)
 		writeBlock = GetRandomBlock()
 
-		err = tb.write(myKey, writeBlock)
+		tmpKV.key = myKey
+		// Generate a pseudo random flags byte
+		tmpKV.flags = byte(i * int(myKey))
+		tmpKV.block = writeBlock
+
+		err = tb.write(&tmpKV)
 		if err != nil {
 			t.Fatalf("Entry #%d write failed: Error occured during write.", i)
 		}
