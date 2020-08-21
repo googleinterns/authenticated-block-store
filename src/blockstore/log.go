@@ -745,6 +745,7 @@ func (lm *logManager) write(kvList []*keyVal) error {
 	var hashList [][]byte
 	var firstLeafIndex int
 	var toBeHashed []byte
+	var tmpKV keyVal
 
 	// Fist assign a new header file.
 	newHeader = new(logHeader)
@@ -816,7 +817,7 @@ func (lm *logManager) write(kvList []*keyVal) error {
 
 	// Write data blocks, which consist bulk of the log file.
 	// The encrypted version of data blocks are written, and the
-	// hash of plain blocks are stored in the merkle tree.
+	// hash of encrypted blocks are stored in the merkle tree.
 	encryptedBlock = new(Block)
 	for i, kv := range kvList {
 		err = encryptData(encryptedBlock[:], kv.block[:])
@@ -824,7 +825,10 @@ func (lm *logManager) write(kvList []*keyVal) error {
 			log.Println("Failure in encryption. -> " + err.Error())
 			return errors.New("Failure in encryption. -> " + err.Error())
 		}
-		toBeHashed = packBlockKeyFlags(kv)
+		tmpKV.key = kv.key
+		tmpKV.flags = kv.flags
+		tmpKV.block = encryptedBlock
+		toBeHashed = packBlockKeyFlags(&tmpKV)
 		err = hashData(hashList[firstLeafIndex+i], toBeHashed)
 		if err != nil {
 			log.Println("Failure in calculating hash. -> " + err.Error())
@@ -958,6 +962,14 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 		return nil, errors.New("Failure in reading block from file.")
 	}
 
+	// Validate the kv in the tree.
+	kv.block = tmpBlock
+	ok = validateBlock(hashList, kv, index)
+	if !ok {
+		log.Println("Could not validate the keyVal in the merkle tree.")
+		return nil, errors.New("Could not validate the keyVal in the merkle tree.")
+	}
+
 	// Decrypt the block.
 	kv.block = new(Block)
 	if kv.block == nil {
@@ -969,13 +981,6 @@ func (lm *logManager) read(keyIn uint64) (*keyVal, error) {
 	if err != nil {
 		log.Println("Failure in decryption. -> " + err.Error())
 		return nil, errors.New("Failure in decryption. -> " + err.Error())
-	}
-
-	// Validate the kv in the tree.
-	ok = validateBlock(hashList, kv, index)
-	if !ok {
-		log.Println("Could not validate the keyVal in the merkle tree.")
-		return nil, errors.New("Could not validate the keyVal in the merkle tree.")
 	}
 
 	return kv, nil
@@ -1277,18 +1282,7 @@ func (lm *logManager) merge() error {
 			return errors.New("Failure in reading block from file.")
 		}
 
-		// Decrypt the block.
-		item.kv.block = new(Block)
-		if item.kv.block == nil {
-			log.Println("Could not allocate memory.")
-			return errors.New("Could not allocate memory.")
-		}
-
-		err = decryptData(item.kv.block[:], encryptedBlock[:])
-		if err != nil {
-			log.Println("Failure in decryption. -> " + err.Error())
-			return errors.New("Failure in decryption. -> " + err.Error())
-		}
+		item.kv.block = encryptedBlock
 
 		// Validate the kv in the tree.
 		ok = validateBlock(hashList[item.logIndex], item.kv, item.tableIndex)
