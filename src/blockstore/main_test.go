@@ -16,30 +16,26 @@
 
 package blockstore
 
-// This file implements block primitives.
-
 import (
-	"math/rand"
-	"time"
+	"os"
+	"testing"
 )
 
-// Size of a Block can be arbitrary. It is Intended to be 4096 to fit in a 4KB page.
-const blockSize = 4096
-
-type Block [blockSize]byte
-
-// Helper function that generates a random block of data.
-func GetRandomBlock() *Block {
-	var newBlock *Block = new(Block)
-	myRand := randomGen()
-	for index, _ := range newBlock {
-		newBlock[index] = byte(myRand.Intn(256))
+// The initializer for testing.
+// It creates a random generator for the test functions.
+// It also creates a directory for test log files. if this directory exists,
+// it removes previous files.
+func TestMain(m *testing.M) {
+	if myRand == nil {
+		myRand = randomGen()
 	}
-	return newBlock
-}
 
-func randomGen() *rand.Rand {
-	seed := rand.NewSource(time.Now().UnixNano())
-	random := rand.New(seed)
-	return random
+	// Remove existing test log files.
+	os.RemoveAll(dirTest)
+
+	// Create a directory for new files.
+	os.Mkdir(dirTest, 0755)
+
+	stat := m.Run()
+	os.Exit(stat)
 }
